@@ -1,0 +1,57 @@
+# Stomp.test
+
+package require tcltest
+
+namespace import -force ::tcltest::*
+
+# Software under test
+package require tStomp
+
+proc stompcallback {stompobject messageId destination timestamp expires priority messagebody} {
+	puts "MessageID $messageId"
+	puts "Destination $destination"
+	puts "TimeStamp $timestamp"
+	puts "Expires $expires"
+	puts "Priority $priority"
+	puts "Message $messagebody"
+	set ::result $destination
+ }
+ 
+
+test Stomp_connectToServer {} -body {
+	puts "Testing Stomp Connect"
+	set ::result "NOT CONNECTED"
+	Stomp ::s localhost 61613
+	::s connect {set ::result CONNECTED}
+	vwait ::result
+	return $::result
+} -result "CONNECTED"
+
+
+
+test Stomp_sendToQueue {} -body {
+	set ::result "NOT DONE"
+	::s send /queue/queue1 "stompsimpleprotocol "
+	::s subscribe /queue/queue1 {stompcallback $this $messageId $destination $timestamp $expires $priority $messagebody}	
+	vwait ::result
+	puts $::result
+	return $::result
+} -result "/queue/queue1"
+
+
+test Stomp_SendUnicodeToSubscribedQueue {} -body {
+	::s send /queue/queue1 Å�Å’s
+} 
+
+
+
+test Stomp_UnSubscribe {} -body {
+	::s  unsubscribe /queue/queue1 1 
+}  
+
+test Stomp_Disconnect {} -body {
+	::s  disconnect 
+} 
+
+catch {delete objec ::s}
+cleanupTests
