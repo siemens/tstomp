@@ -8,7 +8,7 @@
 # of this file and for a DISCLAIMER OF ALL WARRANTIES.
 # 
 
-package provide tStomp 1.0
+package provide tStomp 0.3
 package require Itcl
 package require struct::set
 package require cmdline
