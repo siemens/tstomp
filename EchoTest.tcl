@@ -1,3 +1,7 @@
+#!/bin/sh
+#\
+exec tclsh "$0" "$@"
+
 # EchoTest.tcl
 package require tStomp
 
@@ -19,7 +23,7 @@ proc stompcallback {stompobject messageId destination timestamp expires priority
 	
 }
 
-Stomp ::s localhost 61613
+tStomp ::s localhost 61613
 ::s connect {
 	puts "connect successful"
 	::s subscribe /queue/JMeterPublisher  {stompcallback $this $messageId $destination $timestamp $expires $priority $messagebody}
