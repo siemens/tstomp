@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<jmeterTestPlan version="1.2" properties="2.1">
+<jmeterTestPlan version="1.2" properties="2.3">
   <hashTree>
     <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="Test Plan" enabled="true">
       <stringProp name="TestPlan.comments"></stringProp>
@@ -11,14 +11,14 @@
       <stringProp name="TestPlan.user_define_classpath"></stringProp>
     </TestPlan>
     <hashTree>
-      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Publisher" enabled="true">
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="PublisherSubscriber" enabled="true">
         <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
         <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="Loop Controller" enabled="true">
           <boolProp name="LoopController.continue_forever">false</boolProp>
-          <stringProp name="LoopController.loops">1</stringProp>
+          <stringProp name="LoopController.loops">100</stringProp>
         </elementProp>
-        <stringProp name="ThreadGroup.num_threads">101</stringProp>
-        <stringProp name="ThreadGroup.ramp_time">101</stringProp>
+        <stringProp name="ThreadGroup.num_threads">10</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">10</stringProp>
         <longProp name="ThreadGroup.start_time">1318001471000</longProp>
         <longProp name="ThreadGroup.end_time">1318001471000</longProp>
         <boolProp name="ThreadGroup.scheduler">false</boolProp>
@@ -31,7 +31,7 @@
           <stringProp name="jms.initial_context_factory">org.apache.activemq.jndi.ActiveMQInitialContextFactory</stringProp>
           <stringProp name="jms.provider_url">tcp://localhost:61616</stringProp>
           <stringProp name="jms.connection_factory">ConnectionFactory</stringProp>
-          <stringProp name="jms.topic">dynamicTopics/JMeterPublisher</stringProp>
+          <stringProp name="jms.topic">dynamicQueues/JMeterPublisher</stringProp>
           <stringProp name="jms.security_principle"></stringProp>
           <stringProp name="jms.security_credentials"></stringProp>
           <stringProp name="jms.text_message">${C}TestingActiveMQStompProtocolPerformancewithJmeter</stringProp>
@@ -41,6 +41,9 @@
           <stringProp name="jms.config_msg_type">jms_text_message</stringProp>
           <stringProp name="jms.iterations">1</stringProp>
           <boolProp name="jms.authenticate">false</boolProp>
+          <elementProp name="jms.jmsProperties" elementType="Arguments" guiclass="ArgumentsPanel" testclass="Arguments" enabled="true">
+            <collectionProp name="Arguments.arguments"/>
+          </elementProp>
         </PublisherSampler>
         <hashTree/>
         <SubscriberSampler guiclass="JMSSubscriberGui" testclass="SubscriberSampler" testname="Sample  Subscriber" enabled="true">
@@ -48,7 +51,7 @@
           <stringProp name="jms.initial_context_factory">org.apache.activemq.jndi.ActiveMQInitialContextFactory</stringProp>
           <stringProp name="jms.provider_url">tcp://localhost:61616</stringProp>
           <stringProp name="jms.connection_factory">ConnectionFactory</stringProp>
-          <stringProp name="jms.topic">dynamicTopics/StompPublisher</stringProp>
+          <stringProp name="jms.topic">dynamicQueues/JMeterSubscriber</stringProp>
           <stringProp name="jms.security_principle"></stringProp>
           <stringProp name="jms.security_credentials"></stringProp>
           <boolProp name="jms.authenticate">false</boolProp>

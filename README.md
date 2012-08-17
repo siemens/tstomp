@@ -1,5 +1,5 @@
 This is a Stomp Implementation for TCL: tStomp
-Version 0.3
+Version 0.4
 
 Stomp stands for "Streaming Text Orientated Messaging Protocol". 
   This implementation is based on Stomp 1.1 specification, which can be found at 
@@ -38,5 +38,8 @@ History
   Version 0.3 2012-06-13:
     improved unit test cases by Christian Ringhut and Jan Schimanski
     compatible with ActiveMQ 5.6.0 by Alexander Vetter
-    
-
+  Version 0.4 2012-08-17:
+    automatic reconnect
+    unsubscribe bug
+    utf-8 encoding bug
+    small changes for unix by Francisco Castro
