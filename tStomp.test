@@ -1,4 +1,6 @@
-# Stomp.test
+﻿#!/bin/sh
+#\
+exec tclsh "$0" "$@"
 
 package require tcltest
 
@@ -13,9 +15,23 @@ proc debug {args} {
 # Software under test
 package require tStomp
 
-# Setting Serveraddress and port
-set ::serverAddress desw138x
-set ::serverPort 61612
+# Setting serverAddress and serverPort
+set ::serverAddress localhost
+set ::serverPort 61613
+
+foreach {key value} $argv {
+	switch -exact $key {
+		-serverAddress {
+			set ::serverAddress $value
+		}
+		-serverPort {
+			set ::serverPort $value
+		}
+	}
+}
+
+tStomp ::s $::serverAddress $::serverPort
+
 set ::runs 0
 
 proc getNewQueue {} {

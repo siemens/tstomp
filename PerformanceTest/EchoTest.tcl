@@ -1,4 +1,4 @@
-#!/bin/sh
+﻿#!/bin/sh
 #\
 exec tclsh "$0" "$@"
 
@@ -36,6 +36,7 @@ foreach {key value} $argv {
 		}
 	}
 }
+
 tStomp ::s $::serverAddress $::serverPort
 
 
