@@ -1,6 +1,6 @@
 This is a Stomp Implementation for TCL: tStomp
 
-Version 0.4
+Version 0.5
 
 Stomp stands for "Streaming Text Orientated Messaging Protocol".  
   This implementation is based on Stomp 1.1 specification, which can be found at http://stomp.github.com/stomp-specification-1.1.html  
