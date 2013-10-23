@@ -2,7 +2,7 @@
 # The Stomp Protocol Specification can be found at http://stomp.github.com/stomp-specification-1.1.html
 #
 # Copyright (c) 2011, SIEMENS AG, see file "LICENSE".
-# Authors: Derk Muenchhausen, Sravanthi Anumakonda, Franziska Haunolder, Christian Ringhut, Jan Schimanski, Gaspare Mellino
+# Authors: Derk Muenchhausen, Sravanthi Anumakonda, Franziska Haunolder, Christian Ringhut, Jan Schimanski, Gaspare Mellino, Alexander Vetter, Fabian Kaiser
 #
 # See the file "LICENSE" for information on usage and redistribution
 # of this file and for a DISCLAIMER OF ALL WARRANTIES.
@@ -12,9 +12,9 @@
 # -notConnected
 # -wrongArgs
 # -notSuscribedToGivenDestination
-#
 
-package provide tStomp 0.4
+package provide tStomp 0.5
+
 package require Itcl
 package require struct::set
 package require cmdline
@@ -34,6 +34,10 @@ class tStomp {
 	variable port
 	# holds the channel identifier once the channel is opened
 	variable connection_to_server
+	# holds the username for authentication
+	variable username
+	# holds the password for authentication
+	variable password
 	# Boolean value for checking Connection is established or not
 	variable isConnected
 	# script called on the response of "CONNECT" Command
@@ -50,12 +54,21 @@ class tStomp {
 	variable calledCounter 0 
 	# stomp protocol version e.g. 1.0, 1.1
 	variable stompVersion ""
+	# test mode
+	variable testMode 0
 
 	# Class called with the ipaddress and port and values are initialised in the constructor
-	constructor {ip p} {} {
-		set host $ip
-		set port $p
+	constructor {stompUrl} {} {
+		set parsed [parseStompUrl $stompUrl]
+		
+		set host [lindex $parsed 1 0 0]
+		set port [lindex $parsed 1 0 1]
+		
+		set username [lindex $parsed 1 0 2]
+		set password [lindex $parsed 1 0 3]
+		
 		set isConnected  0
+		
 		set readStatus start
 	}
 
@@ -68,7 +81,7 @@ class tStomp {
 		if {$isConnected} {
 			error alreadyConnected
 		}
-				
+			
 		if {[namespace exists ::tStompCallbacks-$this]} {
 			namespace delete ::tStompCallbacks-$this
 		}
@@ -78,13 +91,16 @@ class tStomp {
 		set onConnectScript $_onConnectScript
 		
 		# This command opens a network socket and returns a channel identifier
-		debug "connection_to_server socket $host $port"
 		set connection_to_server [socket $host $port]
+		
+		debug "connect to server $host:$port with $username $password"
+		
 		# To do I/O operations on the channel in non blocking mode
 		fconfigure $connection_to_server -blocking 0
+		
 		# No end-of-line translations are performed
 		fconfigure $connection_to_server -translation {auto binary}
-#		fconfigure $connection_to_server -translation {auto lf} -encoding utf-8
+		#fconfigure $connection_to_server -translation {auto lf} -encoding utf-8
 
 		#############################################
 		# Stomp Protocol format for CONNECT Command #
@@ -97,10 +113,13 @@ class tStomp {
 		#############################################
 		puts $connection_to_server "CONNECT"
 		puts $connection_to_server "accept-version:1.0,1.1"
+		puts $connection_to_server "host:$host"
+		puts $connection_to_server "login:$username"
+		puts $connection_to_server "passcode:$password"
 		puts $connection_to_server ""
 		puts $connection_to_server "\0"
 		
-		fileevent  $connection_to_server readable [code $this handleInput]
+		fileevent $connection_to_server readable [code $this handleInput]
 		
 		flush $connection_to_server	
 	}
@@ -108,7 +127,7 @@ class tStomp {
 	# In case of EOF (losing connection) try to reconnect
 	private method reconnect {} {
 		debug "trying to reconnect..."
-		if {[catch {connect  ""} err] == 1} {
+		if {[catch {connect ""} err] == 1} {
 			error $err
 		}
 	}
@@ -123,7 +142,6 @@ class tStomp {
 				debug "destination: '$destname' re-subscribed"
 			}
 		}
-		
 	}
 	
 	# Called from fileevent - reads one line
@@ -167,7 +185,7 @@ class tStomp {
 				if {[string length $line]>0} {
 					set readCommand $line
 					set readStatus header
-						debug "handleLine: Stomp: $line" FINE
+					debug "handleLine: Stomp: $line" FINE
 				}
 			}
 			header {
@@ -182,16 +200,16 @@ class tStomp {
 				}
 			}
 			messagebody {
-				switch -exact $readCommand {
+				switch -exact -- $readCommand {
 					CONNECTED {
 					}
-					MESSAGE {
+					MESSAGE - ERROR {
 						append params(messagebody) $line
-					}
-					ERROR {
-						if {[info exists params(messagebody)]} {
-							debug "Got Error: $params(messagebody)"
-						}	
+
+						if {!$endOfMessage} {
+							# we don't know if it's the last line but we append newline anyway
+							append params(messagebody) "\n"
+						}
 					}
 					RECEIPT {
 						debug "Handling RECEIPT messages -> not implemented yet"
@@ -238,12 +256,18 @@ class tStomp {
 			}
 		
 			set readStatus start
-			unset params
+
+			if {!$testMode} {
+				array unset params
+			}
 		}
 	}
 
 	# invoked when the server response frame is MESSAGE
 	private method on_receive {} {
+		if {[info exists params(messagebody)]} {
+			set params(messagebody) [encoding convertfrom utf-8 $params(messagebody)]
+		}
 
 		if {![info exists params(destination)]} {
 			debug "destination is empty"
@@ -264,10 +288,10 @@ class tStomp {
 		
 		#  if a global execute_thread command is available, use it
 		if [llength [info command execute_thread]] {
-			debug "execute_thread $script $messageNvList"
+			debug "execute_thread $script $messageNvList" FINE
 			execute_thread $script $messageNvList
 		} else {
-			debug "uplevel $script $messageNvList"
+			debug "uplevel $script $messageNvList" FINE
 			if {![llength [info commands ::tStompCallbacks-${this}::$destination]]} {
 				proc ::tStompCallbacks-${this}::$destination {messageNvList} $script
 			}
@@ -277,8 +301,23 @@ class tStomp {
 
 	# only for testing the handleLine Method
 	public method testHandleLine {line} {
+		set endOfMessage 0
+		if {[regsub -all \x00 $line "" temp]} {
+			set endOfMessage 1
+		}
+
+		set testMode 1
+		
 		handleLine $line
-		return [list [array get params] [list $readCommand] [list $readStatus]]
+		set result [list [array get params] [list $readCommand] [list $readStatus]]
+		
+		set testMode 0
+
+		if {$endOfMessage} {
+			array unset params
+		}
+
+		return $result
 	}
 
 	# The SEND command sends a message to a destination in the messaging system.
@@ -294,45 +333,76 @@ class tStomp {
 			error notConnected
 		}
 	
-		set options [list\
-			{correlationId.arg ""}\
-			{replyTo.arg ""}\
-			{headers.arg {}}\
-		]
+	#all options can be given as headers or options
+	#if an option and a header exists, the header will be overwritten by the option
+		set options {
+			{correlationId.arg ""}
+			{replyTo.arg ""}
+			{persistent.arg ""}
+			{ttl.arg ""}
+			{headers.arg {}}
+		}
 	
 		array set option [cmdline::getKnownOptions args $options]
-	
-		debug "args.length [llength $args]" FINEST
 		
 		if {[llength $args] != 2} {
-			#error [cmdline::usage ?-correlationId <correlationId>? ?-replyTo <replyTo>? ?-headers [list <name> <value> ...]? dest msg]
-			error wrongArgs
+			error [cmdline::usage $options]
 		} else {
 			foreach {dest msg} $args {break}
 		}
 
-		debug "send args> $args - dest> $dest - msg> $msg"
+		debug "send args> $args - dest> $dest - msg> $msg" FINE
 	
-		puts $connection_to_server "SEND"
-		puts $connection_to_server "destination:$dest"
-		puts $connection_to_server "persistent:true"
-
-
-		
-		if {$option(correlationId) != ""} {
-			puts $connection_to_server "correlation-id:$option(correlationId)"
-		}
-		if {$option(replyTo) != ""} {
-			puts $connection_to_server "reply-to:$option(replyTo)"
-		}
-		if {$option(headers) != ""} {
-			foreach {n v} $option(headers) {
-				puts $connection_to_server "$n:$v"
+		# option headers
+		array set headers $option(headers)
+		#header ttl is overwritten by header exists
+		#header exists is overwritten by option ttl
+		if {[info exists headers(ttl)] && $headers(ttl) != ""} {
+			if {![info exists headers(expires)]} {
+				set headers(expires) [format %.0f [expr $headers(ttl) == 0 ? 0 : ([clock seconds] * 1000.0 + $headers(ttl))]]
+			} else {
+				debug "header expires already set, header ttl ignored" WARN
 			}
 		}
+
+		# special options
+		if {$option(ttl) != ""} {
+			if {[info exists headers(expires)]} {
+				debug "existing header expires was overwritten by option ttl" WARN
+			}
+
+			set headers(expires) [format %.0f [expr $option(ttl) == 0 ? 0 : ([clock seconds] * 1000.0 + $option(ttl))]]
+		}
+		
+		set specialOptionMap {
+			correlationId correlation-id
+			replyTo reply-to
+			persistent persistent
+		}
+
+		foreach {optionName headerName} $specialOptionMap {
+			if {$option(${optionName}) != ""} {
+				if {[info exists headers(${headerName})] && $headers(${headerName}) != $option(${optionName})} {
+					debug "existing header ${headerName} was overwritten by option ${optionName}" WARN
+				}
+
+				set headers(${headerName}) $option(${optionName})
+			}
+		}
+
+		catch {unset headers(ttl)}
+
+		puts $connection_to_server "SEND"
+		puts $connection_to_server "destination:$dest"
+		
+		foreach name [array names headers] {
+			puts $connection_to_server "$name:$headers(${name})"
+		}
+
+		array unset headers
+		
 		puts $connection_to_server ""
-		puts $connection_to_server "[encoding convertto utf-8 $msg]"
-		puts $connection_to_server "\0"
+		puts $connection_to_server "[encoding convertto utf-8 $msg]\0"
 		flush $connection_to_server
 
 		return 1
@@ -384,9 +454,9 @@ class tStomp {
 			unset scriptsOfSubscribedDestinations($destName)
 			puts $connection_to_server "UNSUBSCRIBE"
 			if {$stompVersion == "1.0"} {
-					puts $connection_to_server "destination:$destName"
+				puts $connection_to_server "destination:$destName"
 			} else {
-						   puts $connection_to_server "id:[getDestinationId $destName]"
+				puts $connection_to_server "id:[getDestinationId $destName]"
 			}
 			puts $connection_to_server ""
 			puts $connection_to_server "\0"
@@ -458,6 +528,42 @@ class tStomp {
 
 	proc debug {msg {level ""}} {
 		::tStompDebug::debug $msg $level
+	}
+	
+	proc parseStompUrl {stompUrl} {
+		# we parse for failover but we don't support it yet
+		
+		if ![set failover [regexp {failover:\((.*)\)} $stompUrl all brokerUrlList]] {
+			set brokerUrlList $stompUrl
+		}
+
+		set brokerList [list]
+
+		foreach brokerUrl [split $brokerUrlList ,] {
+			regsub "stomp://" $brokerUrl "" brokerInfo
+			
+			set brokerInfo [split [split $brokerInfo ":"] "@"]
+
+			if {[llength $brokerInfo] == 2} {
+				set login [lindex $brokerInfo 0 0]
+				set passcode [lindex $brokerInfo 0 1]
+				
+				set host [lindex $brokerInfo 1 0]
+				set port [lindex $brokerInfo 1 1]
+			} elseif {[llength $brokerInfo] == 1} {
+				set login ""
+				set passcode ""
+				
+				set host [lindex $brokerInfo 0 0]
+				set port [lindex $brokerInfo 0 1]
+			} else {
+				error "wrong format"
+			}
+			
+			lappend brokerList [list $host $port $login $passcode]
+		}
+
+		return [list $failover $brokerList];
 	}
 }
 
