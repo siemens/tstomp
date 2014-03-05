@@ -1,18 +1,14 @@
-This is a Stomp Implementation for TCL: tStomp
+# tStomp
+This is a Stomp Implementation for Tcl coded in pure Tcl.
 
-Version 0.5
+**Current Version 0.6**
 
-Stomp stands for "Streaming Text Orientated Messaging Protocol".  
-  This implementation is based on Stomp 1.1 specification, which can be found at http://stomp.github.com/stomp-specification-1.1.html  
-  TCL homepage: http://www.tcl.tk/ 
+Stomp stands for "Streaming Text Orientated Messaging Protocol". This implementation is based on Stomp 1.1 specification, which can be found at http://stomp.github.com/stomp-specification-1.1.html. For futher information about Tcl, visit their homepage at http://www.tcl.tk.
 
-Primary site:
-  https://github.com/siemens/tstomp/
+Primary site: https://github.com/siemens/tstomp
+Source code: https://github.com/siemens/tstomp.git
 
-Source code:
-  https://github.com/siemens/tstomp.git
-
-# How to run tStomp
+## How to run tStomp
 * configure Apache ActiveMQ:
     * edit activemq.xml
     * add transport connectors:
@@ -29,7 +25,7 @@ Source code:
 * Running load tests:
     * start JMeter (https://jmeter.apache.org), load ActiveMQPublishSubscribe.jmx, start tcl console and config and source EchoTest.tcl
   
-# Documentation	
+## Documentation	
 
 	As the TCL implementation of STOMP the tStomp is able to connect to a message broker to send, receive and handle asynchronous messages.
 	
@@ -138,8 +134,6 @@ Source code:
 		wrongArgs: thrown if a method is called with wrong arguments
 		notSubscribedToGivenDestination: thrown if trying to unsubscribe from a destination while not subscribed
 	
-	
-	
 	class tStomp
 		
 	
@@ -195,6 +189,10 @@ Source code:
 		
 
 # History
+*  Version 0.6 2014-03-05:
+     * add support for additional headers (connect, subscribe, unsubscribe)
+     * test for durable subscription
+     * fix a problem with parsing header containing a \c
 *  Version 0.5 2013-10-21:
 	 * parse stompUrl
 	 * new options in tStomp send
