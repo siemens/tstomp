@@ -10,6 +10,9 @@ proc debug {args} {
 	puts "[lindex $args 0]"
 }
 
+# add current to directory for requiring tStomp
+lappend auto_path ./
+
 # Software under test
 package require tStomp
 
@@ -18,9 +21,14 @@ set ::serverURL stomp://system:manager@desw138x:61612
 set ::runs 0
 
 proc getNewQueue {} {
-	set queue "/queue/test."
+	set queue "/queue/tstomp.test."
 	append queue [string trim [clock clicks] -]
 	return $queue
+}
+
+proc getTopic {} {
+	set topic "/topic/tstomp.testtopic"
+	return $topic
 }
 
 proc stompcallback {messageNvList} {
@@ -36,15 +44,21 @@ proc stompcallback {messageNvList} {
 
 test Stomp_connect {} -body {
 	puts "## Stomp_connect"
+
+
 	# Connect
 	catch {delete object ::s}
 	tStomp ::s $::serverURL
-	::s connect {set ::result CONNECTED}
-	after 5000 [list set ::result "NOT CONNECTED"]
+	::s connect {set ::result "CONNECTED"}
+
+	unset -nocomplain -- ::result
+	set afterId [after 5000 {set ::result "NOT CONNECTED"; puts "Excute after!"}]
 	vwait ::result
+	catch {after cancel $afterId}
+
 	if {$::result == "NOT CONNECTED"} {
+		puts "### NOT CONNECTED $::result"
 		error "In testcase 'Stomp_connect' Connection failed"
-		puts "### NOT CONNECTED"
 	}
 
 	if ![::s getIsConnected] {
@@ -62,12 +76,16 @@ test Stomp_connect {} -body {
 	}
 
 	# second connect with new script
-	::s connect {set ::result2 CONNECTED}
-	after 5000 [list set ::result2 "NOT CONNECTED"]
+	::s connect {set ::result2 "CONNECTED"}
+
+	unset -nocomplain -- ::result2
+	set afterId [after 5000 {set ::result2 "NOT CONNECTED"}]
 	vwait ::result2
+	catch {after cancel $afterId}
+
 	if {$::result2 == "NOT CONNECTED"} {
+		puts "### NOT CONNECTED $::result"
 		error "In testcase 'Stomp_connect' Connection two failed"
-		puts "### NOT CONNECTED"
 	}
 
 	return 1	
@@ -147,6 +165,7 @@ test Stomp_Double_Header {} -body {
 	catch {delete object ::s}
 	tStomp ::s $::serverURL
 	::s connect {set ::result CONNECTED}
+
 	after 5000 [list set ::result "NOT CONNECTED"]
 	vwait ::result
 	
@@ -223,6 +242,51 @@ test Stomp_subscribe {} -body {
 	return 1
 
 } -result "1"
+
+
+
+test Stomp_durably_subscribe {} -body {
+	puts "## Stomp_durably_subscribe"
+	set topic_subscribe [getTopic]
+	# Connect
+	catch {delete object ::s}
+	tStomp ::s $::serverURL
+	::s connect {set ::result CONNECTED} {client-id tStompTest}
+	after 5000 [list set ::result "NOT CONNECTED"]
+	vwait ::result
+
+	# subscribe
+	if {[::s subscribe $topic_subscribe {stompcallback $messageNvList} {activemq.subscriptionName tStompTest}] != 1} {
+		error "In testcase 'Stomp_durably_subscribe' Subscribe to topic failed"
+	}
+
+	after 1000 [list ::s send $topic_subscribe "Stomp_durably_subscribe\nIt worked!"]
+
+	set afterId [after 5000 [list set ::messagebody __ERROR__]]
+	vwait ::messagebody
+
+	catch {after cancel $afterID}
+
+	if {$::messagebody == "__ERROR__"} {
+		error "In testcase 'Stomp_durably_subscribe' getting a message failed"
+	} elseif {$::messagebody != "Stomp_durably_subscribe\nIt worked!"} {
+		error "Message not equal to sent message. got='$::messagebody' want='Stomp_durably_subscribe\nIt worked!'"
+	}
+
+	# unsubscribe
+	if {[::s unsubscribe $topic_subscribe {persistent true client-id tStompTest}] != 1} {
+		error "In testcase 'Stomp_durably_subscribe' Unsubscribe failed"
+	}
+
+	# disconnect
+	if {[::s disconnect] != 1} {
+		error "In testcase 'Stomp_durably_subscribe' Disconnect faild"
+	}
+	
+	return 1
+
+} -result "1"
+
 
 
 test Stomp_unsubscribe {} -body {

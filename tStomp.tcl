@@ -28,44 +28,69 @@ catch {delete class tStomp}
 class tStomp {
 	# array: holds the Destination names the client has subscribed to; the value contains the callback script
 	variable scriptsOfSubscribedDestinations
+
 	# holds the ip address
 	variable host
+
 	# the port we need to connect (e.g. ActiveMQ Message Broker uses port 61613 for Stomp protocol)
 	variable port
+
 	# holds the channel identifier once the channel is opened
 	variable connection_to_server
+
 	# holds the username for authentication
 	variable username
+
 	# holds the password for authentication
 	variable password
+
 	# Boolean value for checking Connection is established or not
 	variable isConnected
+
 	# script called on the response of "CONNECT" Command
 	variable onConnectScript
+
 	# writing every content of socket in a Logfile
 	variable writeSocketFile 0
+
 	# status indicates actual reading position
 	variable readStatus
+
 	# which message command is actual read
 	variable readCommand
+
 	# array of all params names and values of the actual read message
 	variable params
+
 	# handleInput calledCounter
 	variable calledCounter 0 
+
 	# stomp protocol version e.g. 1.0, 1.1
 	variable stompVersion ""
+
 	# test mode
 	variable testMode 0
+
+	# failover flag (not in use yet)
+	variable failover 0
+
+	# server name and version e.g. ActiveMQ/5.9.0
+	variable serverInfo
 
 	# Class called with the ipaddress and port and values are initialised in the constructor
 	constructor {stompUrl} {} {
 		set parsed [parseStompUrl $stompUrl]
 		
-		set host [lindex $parsed 1 0 0]
-		set port [lindex $parsed 1 0 1]
+		set failover [lindex $parsed 0 0]
+
+		# only one broker supported right now
+		set broker [lindex $parsed 1 0]
+
+		set host [lindex $broker 0]
+		set port [lindex $broker 1]
 		
-		set username [lindex $parsed 1 0 2]
-		set password [lindex $parsed 1 0 3]
+		set username [lindex $broker 2]
+		set password [lindex $broker 3]
 		
 		set isConnected  0
 		
@@ -77,7 +102,11 @@ class tStomp {
 		disconnect 1
 	}
 	
-	public method connect {_onConnectScript} {
+	# Sends CONNECT frame
+	# 
+	# @param connectScript callback script for receiving CONNECTED message
+	# @param additionalHeaders additional headers; name-value list
+	public method connect {connectScript {additionalHeaders {}}} {
 		if {$isConnected} {
 			error alreadyConnected
 		}
@@ -88,19 +117,22 @@ class tStomp {
 		namespace eval ::tStompCallbacks-$this {}
 		
 		set readStatus start
-		set onConnectScript $_onConnectScript
+		set onConnectScript $connectScript
 		
 		# This command opens a network socket and returns a channel identifier
 		set connection_to_server [socket $host $port]
 		
-		debug "connect to server $host:$port with $username $password"
+		debug "connect to server $host:$port with $username"
 		
 		# To do I/O operations on the channel in non blocking mode
 		fconfigure $connection_to_server -blocking 0
 		
 		# No end-of-line translations are performed
 		fconfigure $connection_to_server -translation {auto binary}
-		#fconfigure $connection_to_server -translation {auto lf} -encoding utf-8
+
+		if {[expr [llength $additionalHeaders] % 2] != 0} {
+			error "param additionalHeaders must be a name-value list"
+		}
 
 		#############################################
 		# Stomp Protocol format for CONNECT Command #
@@ -114,32 +146,53 @@ class tStomp {
 		puts $connection_to_server "CONNECT"
 		puts $connection_to_server "accept-version:1.0,1.1"
 		puts $connection_to_server "host:$host"
-		puts $connection_to_server "login:$username"
-		puts $connection_to_server "passcode:$password"
+
+		if {[string length $username] > 0 && [string length $password] > 0} {
+			puts $connection_to_server "login:$username"
+			puts $connection_to_server "passcode:$password"
+		}
+
+		# as for now tStomp doesn't support heart-beat
+		puts $connection_to_server "heart-beat:0,0"
+		
+		foreach {name value} $additionalHeaders {
+			# check for headers already sent
+			switch -- "$name" {
+				"host" - "login" - "passcode" - "heart-beat" {
+					error "host, login, passcode, heart-beat are not allowed as additional headers"
+				}
+			}
+
+			puts $connection_to_server "${name}:${value}"
+		}
+
 		puts $connection_to_server ""
 		puts $connection_to_server "\0"
 		
 		fileevent $connection_to_server readable [code $this handleInput]
 		
 		flush $connection_to_server	
+
+		debug "socket connect to server $host:$port succeeded"
 	}
 	
 	# In case of EOF (losing connection) try to reconnect
 	private method reconnect {} {
 		debug "trying to reconnect..."
 		if {[catch {connect ""} err] == 1} {
-			error $err
+			error "trying to reconnect: $err"
 		}
 	}
 	
-	# After the re-/connect succeeded, try to restore the existing subscribtions
+	# After the re-/connect succeeded, try to restore the existing subscriptions
 	private method connectCallback {} { 
 		debug "connection re-/established"
 		
 		if {[array size scriptsOfSubscribedDestinations] != 0} {
 			foreach {destname} [array names scriptsOfSubscribedDestinations] {
-				_subscribe "$destname"
-				debug "destination: '$destname' re-subscribed"
+				_subscribe "$destname" {}
+
+				debug "Re-subscribed to $destname"
 			}
 		}
 	}
@@ -176,7 +229,7 @@ class tStomp {
 	private method handleLine {line} {
 
 		set endOfMessage 0
-		if {[regsub -all \x00 $line "" line]} {
+		if {[regsub -all -- {\x00} $line "" line]} {
 			set endOfMessage 1
 		}
 
@@ -191,9 +244,15 @@ class tStomp {
 			header {
 				if {[string length $line]>0} {
 					debug "handleLine: StompHeader: $line" FINE
-					set splitHeader [regsub : $line " " ]
+
+					# because of activemq header encoding we need to turn "\c" (0x63) into ":"
+					set line [string map {"\\\x63" :} $line]
+
+					set splitHeader [regsub -- ":" $line " "]
 					set varName [lindex $splitHeader 0]
-					set params($varName) [lindex $splitHeader 1]
+					set value [lindex $splitHeader 1]
+
+					set params($varName) $value
 				} else {
 					debug "handleLine: StompHeaderEND: $line" FINE
 					set readStatus messagebody
@@ -232,11 +291,21 @@ class tStomp {
 			switch -exact $readCommand {
 				CONNECTED {
 					set isConnected 1
+
 					if [info exists params(version)] {
 						set stompVersion $params(version)
-						debug "stompVersion: $stompVersion" FINEST
+						debug "Stomp version: $stompVersion" FINEST
 					}
+
+					if [info exists params(server)] {
+						set serverInfo $params(server)
+						debug "Server information: $serverInfo" FINEST
+					}
+
+					# internal connect callback
 					connectCallback
+
+					# external connect callback
 					execute connect $onConnectScript
 				}
 				MESSAGE {
@@ -325,16 +394,17 @@ class tStomp {
 	# The body of the SEND command is the message to be sent.
 	#
 	# send -replyTo /queue/FooBar -headers {foo 1 bar 2} /queue/Hello.World
+	# @param dest destination name e.g. /queue/test
+	# @param msg message body
 	public method send {args} {
-		debug "send $args" FINEST
-		debug "args.length [llength $args]" FINEST
+		debug "send with $args" FINEST
 		
 		if {$isConnected == 0} {
 			error notConnected
 		}
 	
-	#all options can be given as headers or options
-	#if an option and a header exists, the header will be overwritten by the option
+		# all options can be given as headers or options
+		# if an option and a header exists, the header will be overwritten by the option
 		set options {
 			{correlationId.arg ""}
 			{replyTo.arg ""}
@@ -351,12 +421,13 @@ class tStomp {
 			foreach {dest msg} $args {break}
 		}
 
-		debug "send args> $args - dest> $dest - msg> $msg" FINE
+		debug "send $msg to destination $dest" FINE
 	
 		# option headers
 		array set headers $option(headers)
-		#header ttl is overwritten by header exists
-		#header exists is overwritten by option ttl
+
+		# header ttl is overwritten by header expires
+		# header expires is overwritten by option ttl
 		if {[info exists headers(ttl)] && $headers(ttl) != ""} {
 			if {![info exists headers(expires)]} {
 				set headers(expires) [format %.0f [expr $headers(ttl) == 0 ? 0 : ([clock seconds] * 1000.0 + $headers(ttl))]]
@@ -409,55 +480,99 @@ class tStomp {
 	}
 
 	# Command is used to register to listen to a given destination.
-	# subscribe /queue/foo callbackscript
-	public method subscribe {destName callbackscript} {
+	# Can be called before connect.
+	# 
+	# subscribe /queue/foo {puts "We got a message on foo! $messageNvList"}
+	# 
+	# @param destination name of destination e.g. /queue/foo
+	# @param callbackScript script called on receiving message for destination
+	# @param additionalHeaders 
+	public method subscribe {destination callbackScript {additionalHeaders {}}} {
+		if {[info exists scriptsOfSubscribedDestinations($destination)]} {
+			set scriptsOfSubscribedDestinations($destination) $callbackScript
 
-		if {[info exists scriptsOfSubscribedDestinations($destName)]} {
-			set scriptsOfSubscribedDestinations($destName) $callbackscript
-			if {[llength [info commands ::tStompCallbacks-${this}::$destName]]} {
-				rename ::tStompCallbacks-${this}::$destName ""
+			if {[llength [info commands ::tStompCallbacks-${this}::$destination]]} {
+				rename ::tStompCallbacks-${this}::$destination ""
 			}
-
 		} else {
 			# will be done on connect
 			if {$isConnected == 1} {
-				_subscribe $destName
+				_subscribe $destination $additionalHeaders
 			}
-			set scriptsOfSubscribedDestinations($destName) $callbackscript
+
+			set scriptsOfSubscribedDestinations($destination) $callbackScript
 		}
-		debug "Destination $destName subscribed"
+
+		debug "Subscribed to destination $destination"
+
 		return 1
 	}
 
 	# The internal subscribe method we need in case of reconnect
-	private method _subscribe {destName} {
+	# 
+	# @param destination name of destination e.g. /queue/foo
+	private method _subscribe {destination additionalHeaders} {
+		if {[expr [llength $additionalHeaders] % 2] != 0} {
+			error "param additionalHeaders must be a name-value list"
+		}
+
 		puts $connection_to_server "SUBSCRIBE"
 		if {$stompVersion != "1.0"} {
-			puts $connection_to_server "id:[getDestinationId $destName]"
+			puts $connection_to_server "id:[getDestinationId $destination]"
 		}
-		puts $connection_to_server "destination:$destName"
+		puts $connection_to_server "destination:$destination"
+
+		foreach {name value} $additionalHeaders {
+			# check for headers already sent
+			switch -- "$name" {
+				"id" - "destination" {
+					error "id, destination are not allowed as additional headers"
+				}
+			}
+
+			puts $connection_to_server "${name}:${value}"
+		}
+
 		puts $connection_to_server ""
 		puts $connection_to_server "\0"
+
 		flush $connection_to_server
 	}
 
 	# The unsubscribe command is used to remove an existing subscription - to no longer receive messages from that destination.
 	# unsubscribe /queue/foo
-	public method unsubscribe {destName} {
+	public method unsubscribe {destName {additionalHeaders {}}} {
 		if {$isConnected == 0} {
 			error notConnected
 		}
 		
-		debug "in the unsubscribe method - '$destName'"
-		debug "array [array  get scriptsOfSubscribedDestinations]"
+		debug "Unsubscribe to destination $destName"
+
 		if {[info exists scriptsOfSubscribedDestinations($destName)]} {
 			unset scriptsOfSubscribedDestinations($destName)
+
+			if {[expr [llength $additionalHeaders] % 2] != 0} {
+				error "param additionalHeaders must be a name-value list"
+			}
+		
 			puts $connection_to_server "UNSUBSCRIBE"
 			if {$stompVersion == "1.0"} {
 				puts $connection_to_server "destination:$destName"
 			} else {
 				puts $connection_to_server "id:[getDestinationId $destName]"
 			}
+
+			foreach {name value} $additionalHeaders {
+				# check for headers already sent
+				switch -- "$name" {
+					"id" - "destination" {
+						error "id, destination are not allowed as additional headers"
+					}
+				}
+
+				puts $connection_to_server "${name}:${value}"
+			}
+
 			puts $connection_to_server ""
 			puts $connection_to_server "\0"
 			flush $connection_to_server
@@ -466,9 +581,10 @@ class tStomp {
 				rename ::tStompCallbacks-${this}::$destName ""
 			}
 		} else {
-			debug "scriptsOfSubscribedDestinations($destName) not exists"
-			error notSuscribedToGivenDestination
+			debug "No subscription for $destName"
+			error "No subscription for $destName"
 		}
+
 		return 1
 	}
 		
@@ -492,7 +608,9 @@ class tStomp {
 		}
 		
 		array unset scriptsOfSubscribedDestinations
+
 		set isConnected 0
+
 		return 1
 	}
 
@@ -572,4 +690,3 @@ namespace eval tStompDebug {
 		puts "STOMPLog: $msg"
 	}
 }
-
