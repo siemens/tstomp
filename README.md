@@ -1,7 +1,7 @@
 # tStomp
 This is a Stomp Implementation for Tcl coded in pure Tcl.
 
-**Current Version 0.6**
+**Current Version 0.7**
 
 Stomp stands for "Streaming Text Orientated Messaging Protocol". This implementation is based on Stomp 1.1 specification, which can be found at http://stomp.github.com/stomp-specification-1.1.html. For futher information about Tcl, visit their homepage at http://www.tcl.tk.
 
@@ -25,7 +25,7 @@ Source code: https://github.com/siemens/tstomp.git
 * Running load tests:
     * start JMeter (https://jmeter.apache.org), load ActiveMQPublishSubscribe.jmx, start tcl console and config and source EchoTest.tcl
   
-## Documentation	
+## Tutorial	
 
 As the TCL implementation of STOMP the tStomp is able to connect to a message broker to send, receive and handle asynchronous messages.
 	
@@ -127,12 +127,21 @@ To disconnect the disconnect method may be called. It is possible to force the d
 	tStomp_instance disconnect -> force = 0
 	tStomp_instance disconnect 1 -> force = 1
 		
+## First Heart Beat Implementation
+A first step towards Stomp 1.2 compatibility is the implementation of heart beat messages. With tStomp is possible to ask the server for sending heart beats. About all heartBeatExpected ms the script heartBeatScript will be called. If the connection get's lost, a reconnection is triggered. 
+
+	tStomp_instance connect {puts "CONNECTED"} -heartBeatScript {puts "heart beat isConnected=[tStomp_instance getIsConnected]"}  -heartBeatExpected 1000
+
+
+## Error Handling
 tStomp has 4 errors implemented:
 		
 * alreadyConnected: thrown if connect is called while already connected
 * notConnected: thrown if trying to disconnect, send or unsubscribe while not connected
 * wrongArgs: thrown if a method is called with wrong arguments
 * notSubscribedToGivenDestination: thrown if trying to unsubscribe from a destination while not subscribed
+
+## API
 ```
 	class tStomp
 		constructor {stompUrl}
@@ -158,6 +167,7 @@ tStomp has 4 errors implemented:
 			converts messagebody from utf-8 and calls execute with the encoded message
 		private reconnect {}
 			In case of EOF (End of File -> losing connection) try to reconnect
+			The reconnect subscribes all queues and topics again.
 		public send {args}
 			The SEND command sends a message to a destination in the messaging system.
 			It has one required header, destination, which indicates where to send the message.
@@ -168,8 +178,13 @@ tStomp has 4 errors implemented:
 			Command is used to register to listen to a given destination. On every received message callbackscript will be called
 		private _subscribe {destName}
 			subscribe method only needed when reconnecting
+		public testConnectionFailure
+			Method to simulate a connection failure (internal)
 		public testhandleLine
-			Method to test the handleLine method
+			Method to test the handleLine method (internal)
+		public handleHeartBeatFail
+			internal method called by timeout script if there is no heartbeat within min(3*heartBeatExpected,10000) ms.
+			This method executes heartBeatScript and tries a reconnect. 
 		public unsubscribe {destName}
 			unsubscribes the given destination. correlating callbackscript will be removed
 		public getDestinationId {destination}
@@ -181,10 +196,12 @@ tStomp has 4 errors implemented:
 		public setWriteSocketFile {status}
 			set to enable logging. tStomp log is written in tStomp.log . if nothing is set logging is disabled
 ```
-Unit Tests are found in tStomp.tcl.test .
+Integration Tests are found in tStomp.tcl.test .
 		
 
 # History
+*  Version 0.7 2015-03-29:
+	 * implementation of server initiated heart beats for upcomming Stomp 1.2 specification
 *  Version 0.6 2014-03-05:
      * add support for additional headers (connect, subscribe, unsubscribe)
      * test for durable subscription
@@ -206,3 +223,4 @@ Unit Tests are found in tStomp.tcl.test .
      * improved protocol state machine by Franziska Haunolder
 * Initial Version 0.1 2011-09-28:
      * by Sravanthi Anumakonda, Derk Muenchhausen
+

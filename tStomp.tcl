@@ -77,6 +77,19 @@ class tStomp {
 	# server name and version e.g. ActiveMQ/5.9.0
 	variable serverInfo
 
+	# additional connection headers
+	variable additionalHeaders
+
+	# how often is a heart beat from server side expected
+	variable heartBeatExpected 0
+
+	# script to be called after receiving a server heart beat or an heart beat timeout
+	variable heartBeatScript ""
+
+	# for heart beat timeout handling
+	variable heartBeatAfterId ""
+
+
 	# Class called with the ipaddress and port and values are initialised in the constructor
 	constructor {stompUrl} {} {
 		set parsed [parseStompUrl $stompUrl]
@@ -106,7 +119,31 @@ class tStomp {
 	# 
 	# @param connectScript callback script for receiving CONNECTED message
 	# @param additionalHeaders additional headers; name-value list
-	public method connect {connectScript {additionalHeaders {}}} {
+	public method connect {connectScript args} {
+
+		set options {
+			{heartBeatScript.arg "" "'script to be called after receifing heartBeat'"}
+			{heartBeatExpected.arg 0 "'heart beat expected every <heartBeatExpected> ms'"}
+			{reconnect.arg 0 "'reconnection 0|1 - use previous parameters'"}
+		}
+	
+		array set option [cmdline::getKnownOptions args $options]
+		
+		if {!$option(reconnect)} {
+			switch -exact [llength $args] {
+				0 {set additionalHeaders ""}
+				1 {set additionalHeaders [lindex $args 0]}
+				default {
+					error [cmdline::usage $options] "connectScript ?additionalHeaders?"
+				}
+			}
+			set heartBeatExpected $option(heartBeatExpected)
+			set heartBeatScript $option(heartBeatScript)
+			if {$heartBeatExpected} {
+				recreateAfterScriptForHeartBeatFail 
+			}
+		}
+
 		if {$isConnected} {
 			error alreadyConnected
 		}
@@ -122,7 +159,7 @@ class tStomp {
 		# This command opens a network socket and returns a channel identifier
 		set connection_to_server [socket $host $port]
 		
-		debug "connect to server $host:$port with $username"
+		debug "connect to server $host:$port with $username" INFO
 		
 		# To do I/O operations on the channel in non blocking mode
 		fconfigure $connection_to_server -blocking 0
@@ -144,6 +181,7 @@ class tStomp {
 		#  ^@ ASCII null character.                 #
 		#############################################
 		puts $connection_to_server "CONNECT"
+		puts $connection_to_server "heart-beat:0,$heartBeatExpected"
 		puts $connection_to_server "accept-version:1.0,1.1"
 		puts $connection_to_server "host:$host"
 
@@ -152,9 +190,6 @@ class tStomp {
 			puts $connection_to_server "passcode:$password"
 		}
 
-		# as for now tStomp doesn't support heart-beat
-		puts $connection_to_server "heart-beat:0,0"
-		
 		foreach {name value} $additionalHeaders {
 			# check for headers already sent
 			switch -- "$name" {
@@ -173,34 +208,10 @@ class tStomp {
 		
 		flush $connection_to_server	
 
-		debug "socket connect to server $host:$port succeeded"
+		debug "socket to server $host:$port sucessfully opened" INFO
 	}
-	
-	# In case of EOF (losing connection) try to reconnect
-	private method reconnect {} {
-		debug "trying to reconnect..."
-		if {[catch {connect ""} err] == 1} {
-			error "trying to reconnect: $err"
-		}
-	}
-	
-	# After the re-/connect succeeded, try to restore the existing subscriptions
-	private method connectCallback {} { 
-		debug "connection re-/established"
-		
-		if {[array size scriptsOfSubscribedDestinations] != 0} {
-			foreach {destname} [array names scriptsOfSubscribedDestinations] {
-				_subscribe "$destname" {}
 
-				debug "Re-subscribed to $destname"
-			}
-		}
-	}
-	
-	# Called from fileevent - reads one line
-	public method handleInput {} {
-		if {[eof $connection_to_server]} {
-			debug "end of file"
+	private method closeAndReconnect {} {
 			catch {close $connection_to_server}
 			set isConnected 0
 			
@@ -212,10 +223,39 @@ class tStomp {
 				}
 				after 10000
 			}
+	}
+	
+	# In case of EOF (losing connection) try to reconnect
+	private method reconnect {} {
+		debug "trying to reconnect..." INFO
+		if {[catch {connect "" -reconnect 1} err] == 1} {
+			debug "trying to reconnect: $err" INFO
+			error "trying to reconnect: $err"
+		}
+	}
+	
+	# After the re-/connect succeeded, try to restore the existing subscriptions
+	private method connectCallback {} { 
+		debug "connection re-/established" INFO
+		
+		if {[array size scriptsOfSubscribedDestinations] != 0} {
+			foreach {destname} [array names scriptsOfSubscribedDestinations] {
+				_subscribe "$destname" {}
+
+				debug "Re-subscribed to $destname" INFO
+			}
+		}
+	}
+	
+	# Called from fileevent - reads one line
+	public method handleInput {} {
+		if {[eof $connection_to_server]} {
+			debug "end of file" WARNING
+			closeAndReconnect
 		}
 
 		incr calledCounter
-		debug "handleInput called: $calledCounter" FINEST
+		# debug "handleInput called: $calledCounter" FINEST
 		gets $connection_to_server line
 
 		if {$writeSocketFile == 1} {
@@ -225,9 +265,39 @@ class tStomp {
 		handleLine $line
 	}
 
+	public method handleHeartBeatFail {} {
+		set isConnected 0
+		# negative heart beat ack - check it with isConnected
+		eval $heartBeatScript
+
+		# this can take some seconds
+		closeAndReconnect
+
+		# heart beat ack - check it with isConnected
+		eval $heartBeatScript
+	}
+
+	private method recreateAfterScriptForHeartBeatFail {} {
+		set timeInMs [expr $heartBeatExpected*3<10000?10000:$heartBeatExpected*3]
+		# debug "recreateAfterScriptForHeartBeatFail called $timeInMs" FINEST
+		after cancel $heartBeatAfterId
+		set heartBeatAfterId [after $timeInMs "$this handleHeartBeatFail"] 
+	}
+
+	private method handleHeartBeat {} {
+		# debug "handleHeartBeat [getIsConnected] $heartBeatExpected" FINEST
+			
+		# handling a positive connection heart beat...
+		if {$heartBeatExpected} {
+			recreateAfterScriptForHeartBeatFail
+			# positive heart beat - check it with isConnected
+			eval $heartBeatScript
+		}
+	}
+
 	# Method called whenever input arrives on a connection. Server Responses for the commands
 	private method handleLine {line} {
-
+		# debug $readStatus FINEST
 		set endOfMessage 0
 		if {[regsub -all -- {\x00} $line "" line]} {
 			set endOfMessage 1
@@ -238,12 +308,16 @@ class tStomp {
 				if {[string length $line]>0} {
 					set readCommand $line
 					set readStatus header
-					debug "handleLine: Stomp: $line" FINE
+					# debug "handleLine: Stomp: $line" FINE
+				}
+				if {$isConnected} {
+					# heart beat must not be called during connection setup because CONNECT might not been called yet
+					handleHeartBeat
 				}
 			}
 			header {
 				if {[string length $line]>0} {
-					debug "handleLine: StompHeader: $line" FINE
+					# debug "handleLine: StompHeader: $line" FINE
 
 					# because of activemq header encoding we need to turn "\c" (0x63) into ":"
 					set line [string map {"\\\x63" :} $line]
@@ -254,7 +328,7 @@ class tStomp {
 
 					set params($varName) $value
 				} else {
-					debug "handleLine: StompHeaderEND: $line" FINE
+					# debug "handleLine: StompHeaderEND: $line" FINE
 					set readStatus messagebody
 				}
 			}
@@ -287,19 +361,19 @@ class tStomp {
 		}
 
 		if {$endOfMessage} {
-			debug "handleInput: messageEnd" FINEST
+			# debug "handleInput: messageEnd" FINEST
 			switch -exact $readCommand {
 				CONNECTED {
 					set isConnected 1
 
 					if [info exists params(version)] {
 						set stompVersion $params(version)
-						debug "Stomp version: $stompVersion" FINEST
+						debug "Stomp version: $stompVersion" FINE
 					}
 
 					if [info exists params(server)] {
 						set serverInfo $params(server)
-						debug "Server information: $serverInfo" FINEST
+						debug "Server information: $serverInfo" FINE
 					}
 
 					# internal connect callback
@@ -313,7 +387,7 @@ class tStomp {
 				}
 				ERROR {
 					if {[info exists params(messagebody)]} {
-						debug "handleInput: Got Error: $params(messagebody)"
+						debug "handleInput: Got Error: $params(messagebody)" ERROR
 					}
 				}
 				RECEIPT {
@@ -339,12 +413,12 @@ class tStomp {
 		}
 
 		if {![info exists params(destination)]} {
-			debug "destination is empty"
+			debug "destination is empty" SEVERE
 			return
 		}
 		set destination $params(destination)
 		if {![info exists scriptsOfSubscribedDestinations($destination)]} {
-			debug "scriptsOfSubscribedDestinations($destination) does not exist"
+			debug "scriptsOfSubscribedDestinations($destination) does not exist" SEVERE
 			return
 		}
 	
@@ -353,19 +427,23 @@ class tStomp {
 	
 	# executes a script, e.g. a script defined for a destination or the callback script
 	private method execute {destination script {messageNvList {}}} {
-		debug "im stomp execute: $script ---- | ---- $messageNvList"
+		debug "im stomp execute: $script ---- | ---- $messageNvList" FINE
 		
 		#  if a global execute_thread command is available, use it
 		if [llength [info command execute_thread]] {
-			debug "execute_thread $script $messageNvList" FINE
+			debug "execute_thread $script $messageNvList" FINEST
 			execute_thread $script $messageNvList
 		} else {
-			debug "uplevel $script $messageNvList" FINE
+			debug "uplevel $script $messageNvList" FINEST
 			if {![llength [info commands ::tStompCallbacks-${this}::$destination]]} {
 				proc ::tStompCallbacks-${this}::$destination {messageNvList} $script
 			}
 			::tStompCallbacks-${this}::$destination $messageNvList
 		}
+	}
+
+	public method testConnectionFailure {} {
+		close $connection_to_server
 	}
 
 	# only for testing the handleLine Method
@@ -397,7 +475,7 @@ class tStomp {
 	# @param dest destination name e.g. /queue/test
 	# @param msg message body
 	public method send {args} {
-		debug "send with $args" FINEST
+		# debug "send with $args" FINEST
 		
 		if {$isConnected == 0} {
 			error notConnected
@@ -421,8 +499,9 @@ class tStomp {
 			foreach {dest msg} $args {break}
 		}
 
-		debug "send $msg to destination $dest" FINE
-	
+		# debug "send $msg to destination $dest" FINE
+		debug "send to destination $dest" FINE
+		
 		# option headers
 		array set headers $option(headers)
 
@@ -432,14 +511,14 @@ class tStomp {
 			if {![info exists headers(expires)]} {
 				set headers(expires) [format %.0f [expr $headers(ttl) == 0 ? 0 : ([clock seconds] * 1000.0 + $headers(ttl))]]
 			} else {
-				debug "header expires already set, header ttl ignored" WARN
+				debug "header expires already set, header ttl ignored" WARNING
 			}
 		}
 
 		# special options
 		if {$option(ttl) != ""} {
 			if {[info exists headers(expires)]} {
-				debug "existing header expires was overwritten by option ttl" WARN
+				debug "existing header expires was overwritten by option ttl" WARNING
 			}
 
 			set headers(expires) [format %.0f [expr $option(ttl) == 0 ? 0 : ([clock seconds] * 1000.0 + $option(ttl))]]
@@ -454,7 +533,7 @@ class tStomp {
 		foreach {optionName headerName} $specialOptionMap {
 			if {$option(${optionName}) != ""} {
 				if {[info exists headers(${headerName})] && $headers(${headerName}) != $option(${optionName})} {
-					debug "existing header ${headerName} was overwritten by option ${optionName}" WARN
+					debug "existing header ${headerName} was overwritten by option ${optionName}" WARNING
 				}
 
 				set headers(${headerName}) $option(${optionName})
@@ -503,7 +582,7 @@ class tStomp {
 			set scriptsOfSubscribedDestinations($destination) $callbackScript
 		}
 
-		debug "Subscribed to destination $destination"
+		debug "Subscribed to destination $destination" INFO
 
 		return 1
 	}
@@ -546,7 +625,7 @@ class tStomp {
 			error notConnected
 		}
 		
-		debug "Unsubscribe to destination $destName"
+		debug "Unsubscribe to destination $destName" INFO
 
 		if {[info exists scriptsOfSubscribedDestinations($destName)]} {
 			unset scriptsOfSubscribedDestinations($destName)
@@ -581,7 +660,7 @@ class tStomp {
 				rename ::tStompCallbacks-${this}::$destName ""
 			}
 		} else {
-			debug "No subscription for $destName"
+			debug "No subscription for $destName" WARNING
 			error "No subscription for $destName"
 		}
 
@@ -590,6 +669,7 @@ class tStomp {
 		
 	# Disconnects and restores the variables
 	public method disconnect {{force 0}} {
+		after cancel $heartBeatAfterId
 		if {$isConnected == 0} {
 			if {$force == 0} {
 				error notConnected
@@ -604,7 +684,7 @@ class tStomp {
 		if {[catch {
 			close $connection_to_server
 		} err]} {
-			debug "disconnect close: $err"
+			debug "disconnect close: $err" ERROR
 		}
 		
 		array unset scriptsOfSubscribedDestinations
@@ -690,3 +770,4 @@ namespace eval tStompDebug {
 		puts "STOMPLog: $msg"
 	}
 }
+

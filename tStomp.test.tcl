@@ -17,7 +17,7 @@ lappend auto_path ./
 package require tStomp
 
 # Setting ServerURL
-set ::serverURL stomp://system:manager@desw138x:61612
+set ::serverURL stomp://system:manager@localhost:61612
 set ::runs 0
 
 proc getNewQueue {} {
@@ -41,6 +41,9 @@ proc stompcallback {messageNvList} {
 	}
 	puts "------------------------------"
 }
+
+# to skip tests - add them here:
+# tcltest::configure -skip [list Stomp_handleLine Stomp_connect Stomp_disconnect Stomp_Send Stomp_Double_Header Stomp_subscribe Stomp_unsubscribe Stomp_durably_subscribe]
 
 test Stomp_connect {} -body {
 	puts "## Stomp_connect"
@@ -109,6 +112,92 @@ test Stomp_disconnect {} -body {
 	return 1
 } -result "1"
 
+
+test Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_successful_connection {} -body {
+	puts "##  Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_successful_connection "
+
+
+	# GIVEN:
+	catch {delete object ::s}
+	tStomp ::s $::serverURL
+
+	# WHEN connecting with heartBeat callback script:
+	::s connect {puts "successfully connected"} -heartBeatScript {set ::result "HEARTBEAT"}  -heartBeatExpected 1000
+
+
+	# THEN we expect that it is called within 5sec:
+	unset -nocomplain -- ::result
+	set afterId [after 10000 {set ::result "NO HEARTBEAT"; puts "Excute after!"}]
+	vwait ::result
+	catch {after cancel $afterId}
+
+	if {$::result == "NO HEARTBEAT"} {
+		puts "### NO HEARTBEAT $::result"
+		error "In testcase 'Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_successful_connection' no heartbeat"
+	}
+
+	return 1
+} -result 1
+
+test Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost {} -body {
+	puts "## Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost"
+
+
+	# GIVEN:
+	catch {delete object ::s}
+	tStomp ::s $::serverURL
+	::s connect {set ::result "CONNECTED"} -heartBeatScript {puts "heart beat";if {![::s getIsConnected]} {set ::result2 "DISCONNECTION NOTICED"} else {set ::result3 "CONNECTION NOTICED"}}  -heartBeatExpected 1000
+
+	unset -nocomplain -- ::result
+	set afterId [after 5000 {set ::result "NOT CONNECTED"; puts "Excute after!"}]
+	vwait ::result
+	catch {after cancel $afterId}
+
+	if {$::result == "NOT CONNECTED"} {
+		puts "### NOT CONNECTED $::result"
+		error "In testcase 'Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost' Connection failed"
+	}
+
+	if {![::s getIsConnected]} {
+		error "In testcase 'Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost' Not Connected"
+	}
+
+	# ... at this point: connection is established - "green" :)
+
+	unset -nocomplain -- ::result2
+	
+	# WHEN simulating a failure:
+	puts "running testConnectionFailure"
+	::s testConnectionFailure
+
+
+	# THEN connection failure has to be noticed:
+	puts "wait up to 15s for heart beat timeout..."
+	set afterId [after 15000 {set ::result2 "NO DISCONNECTION NOTICED"}]
+	vwait ::result2
+	catch {after cancel $afterId}
+
+	if {$::result2 == "NO DISCONNECTION NOTICED"} {
+		puts "### $::result2"
+		error "In testcase 'Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost' heartbeat did not notice connection failure"
+	}
+
+	
+	# THEN we expect a reconnection heart beat later:
+	unset -nocomplain -- ::result3
+
+	puts "wait up to 15s for heart beat with connection..."
+	set afterId [after 15000 {set ::result3 "NO CONNECTION NOTICED"}]
+	vwait ::result3
+	catch {after cancel $afterId}
+
+	if {$::result3 == "NO CONNECTION NOTICED"} {
+		puts "### $::result3"
+		error "In testcase 'Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost' heartbeat did not notice reconnection"
+	}
+
+	return 1	
+} -result "1"
 
 test Stomp_Send {} -body {
 	puts "## Stomp_Send"
@@ -338,6 +427,7 @@ test Stomp_unsubscribe {} -body {
 
 
 test Stomp_handleLine {} -body {
+
 	puts "## Stomp_handleLine"
 	set queue_handleLine [getNewQueue]
 	catch {delete object ::s}
@@ -415,6 +505,9 @@ set message [list \
 	return 1
 
 } -result "1"
+
+
+
 
 cleanupTests
 return
