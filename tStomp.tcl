@@ -13,7 +13,7 @@
 # -wrongArgs
 # -notSuscribedToGivenDestination
 
-package provide tStomp 0.6
+package provide tStomp 0.7
 
 package require Itcl
 package require struct::set
