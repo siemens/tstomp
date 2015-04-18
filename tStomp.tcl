@@ -13,7 +13,7 @@
 # -wrongArgs
 # -notSuscribedToGivenDestination
 
-package provide tStomp 0.7
+package provide tStomp 0.8
 
 package require Itcl
 package require struct::set
@@ -30,19 +30,25 @@ class tStomp {
 	variable scriptsOfSubscribedDestinations
 
 	# holds the ip address
-	variable host
+	variable host "unknown"
 
 	# the port we need to connect (e.g. ActiveMQ Message Broker uses port 61613 for Stomp protocol)
-	variable port
-
+	variable port 0
+	
 	# holds the channel identifier once the channel is opened
 	variable connection_to_server
 
 	# holds the username for authentication
-	variable username
+	variable username "anonymous"
 
 	# holds the password for authentication
-	variable password
+	variable password "secret"
+	
+	# holds the available brokers
+	variable listOfBrokers
+
+	# index for actual broker
+	variable brokerIndex 0
 
 	# Boolean value for checking Connection is established or not
 	variable isConnected
@@ -71,9 +77,6 @@ class tStomp {
 	# test mode
 	variable testMode 0
 
-	# failover flag (not in use yet)
-	variable failover 0
-
 	# server name and version e.g. ActiveMQ/5.9.0
 	variable serverInfo
 
@@ -92,18 +95,12 @@ class tStomp {
 
 	# Class called with the ipaddress and port and values are initialised in the constructor
 	constructor {stompUrl} {} {
+		# failover information will be ignored. We assume always a failover.
 		set parsed [parseStompUrl $stompUrl]
-		
-		set failover [lindex $parsed 0 0]
 
 		# only one broker supported right now
-		set broker [lindex $parsed 1 0]
+		set listOfBrokers [lindex $parsed 1]
 
-		set host [lindex $broker 0]
-		set port [lindex $broker 1]
-		
-		set username [lindex $broker 2]
-		set password [lindex $broker 3]
 		
 		set isConnected  0
 		
@@ -121,6 +118,7 @@ class tStomp {
 	# @param additionalHeaders additional headers; name-value list
 	public method connect {connectScript args} {
 
+		
 		set options {
 			{heartBeatScript.arg "" "'script to be called after receifing heartBeat'"}
 			{heartBeatExpected.arg 0 "'heart beat expected every <heartBeatExpected> ms'"}
@@ -143,7 +141,7 @@ class tStomp {
 				recreateAfterScriptForHeartBeatFail 
 			}
 		}
-
+		
 		if {$isConnected} {
 			error alreadyConnected
 		}
@@ -153,79 +151,129 @@ class tStomp {
 		}
 		namespace eval ::tStompCallbacks-$this {}
 		
-		set readStatus start
 		set onConnectScript $connectScript
 		
-		# This command opens a network socket and returns a channel identifier
-		set connection_to_server [socket $host $port]
-		
-		debug "connect to server $host:$port with $username" INFO
-		
-		# To do I/O operations on the channel in non blocking mode
-		fconfigure $connection_to_server -blocking 0
-		
-		# No end-of-line translations are performed
-		fconfigure $connection_to_server -translation {auto binary}
-
-		if {[expr [llength $additionalHeaders] % 2] != 0} {
-			error "param additionalHeaders must be a name-value list"
-		}
-
-		#############################################
-		# Stomp Protocol format for CONNECT Command #
-		#-------------------------------------------#
-		#  CONNECT                                  #
-		#  login: <username>                        #
-		#  passcode:<passcode>                      #
-		#                                           #
-		#  ^@ ASCII null character.                 #
-		#############################################
-		puts $connection_to_server "CONNECT"
-		puts $connection_to_server "heart-beat:0,$heartBeatExpected"
-		puts $connection_to_server "accept-version:1.0,1.1"
-		puts $connection_to_server "host:$host"
-
-		if {[string length $username] > 0 && [string length $password] > 0} {
-			puts $connection_to_server "login:$username"
-			puts $connection_to_server "passcode:$password"
-		}
-
-		foreach {name value} $additionalHeaders {
-			# check for headers already sent
-			switch -- "$name" {
-				"host" - "login" - "passcode" - "heart-beat" {
-					error "host, login, passcode, heart-beat are not allowed as additional headers"
-				}
+		set errorList [list]
+		for {set i 0} {$i<[llength $listOfBrokers]} {incr i} {
+			set r [catchedConnectNext]
+			if {$r != ""} {
+				lappend errorList $r
+			} else {
+				break
 			}
-
-			puts $connection_to_server "${name}:${value}"
 		}
-
-		puts $connection_to_server ""
-		puts $connection_to_server "\0"
 		
-		fileevent $connection_to_server readable [code $this handleInput]
-		
-		flush $connection_to_server	
-
+		if {$i >= [llength $listOfBrokers]} {
+			error "connection to '$listOfBrokers' not possible. The collected errors are: '$errorList'"
+		}
+		 
 		debug "socket to server $host:$port sucessfully opened" INFO
+	}
+	
+	# return empty string on success or error text on error
+	private method catchedConnectNext {} {
+		
+		set actualBroker [lindex $listOfBrokers $brokerIndex]
+		
+		set host [lindex $actualBroker 0]
+		set port [lindex $actualBroker 1]
+		
+		set username [lindex $actualBroker 2]
+		set password [lindex $actualBroker 3]
+		
+		set readStatus start
+		
+		set r [catch {
+			
+			# This command opens a network socket and returns a channel identifier
+			set connection_to_server [socket $host $port]
+			
+			debug "connect to server $host:$port with $username" FINE
+			
+			# To do I/O operations on the channel in non blocking mode
+			fconfigure $connection_to_server -blocking 0
+			
+			# No end-of-line translations are performed
+			fconfigure $connection_to_server -translation {auto binary}
+	
+			if {[expr [llength $additionalHeaders] % 2] != 0} {
+				error "param additionalHeaders must be a name-value list"
+			}
+	
+			#############################################
+			# Stomp Protocol format for CONNECT Command #
+			#-------------------------------------------#
+			#  CONNECT                                  #
+			#  login: <username>                        #
+			#  passcode:<passcode>                      #
+			#                                           #
+			#  ^@ ASCII null character.                 #
+			#############################################
+			puts $connection_to_server "CONNECT"
+			puts $connection_to_server "heart-beat:0,$heartBeatExpected"
+			puts $connection_to_server "accept-version:1.0,1.1,1.2"
+			puts $connection_to_server "host:$host"
+	
+			if {[string length $username] > 0 && [string length $password] > 0} {
+				puts $connection_to_server "login:$username"
+				puts $connection_to_server "passcode:$password"
+			}
+	
+			foreach {name value} $additionalHeaders {
+				# check for headers already sent
+				switch -- "$name" {
+					"host" - "login" - "passcode" - "heart-beat" {
+						error "host, login, passcode, heart-beat are not allowed as additional headers"
+					}
+				}
+	
+				puts $connection_to_server "${name}:${value}"
+			}
+	
+			puts $connection_to_server ""
+			puts $connection_to_server "\0"
+			
+			fileevent $connection_to_server readable [code $this handleInput]
+			
+			flush $connection_to_server	
+		} err]
+		set brokerIndex [expr ($brokerIndex + 1)%[llength $listOfBrokers]]			
+		if {$r} {
+			debug "connect error $err" INFO
+			return $err
+		}
+		
+		return ""
 	}
 
 	private method closeAndReconnect {} {
-			catch {close $connection_to_server}
-			set isConnected 0
-			
-			# be careful when using multiple connections, the following construct will block all of them
-			after 5000
-			while 1 {
-				if {[catch {reconnect}] == 0} {
-					break
-				}
-				after 10000
+		debug "closeAndReconnect" WARNING
+
+		catch {close $connection_to_server}
+		set isConnected 0
+
+		if {$heartBeatExpected} {
+			# call heart beat callback with isConnected=0
+			execute handleHeartBeat $heartBeatScript [list] $isConnected $host $port
+		}
+
+		# be careful when using multiple connections, the following construct will block all of them
+		after 5000
+		while 1 {
+			if {[catch {reconnect}] == 0} {
+				break
 			}
+			after 10000
+		}
+
+		if {$heartBeatExpected} {
+			# call heart beat callback probably with isConnected=1
+			execute handleHeartBeat $heartBeatScript [list] $isConnected $host $port
+		}
 	}
 	
-	# In case of EOF (losing connection) try to reconnect
+	# In case of EOF (End of File -> losing connection) try to reconnect
+	#		The reconnect subscribes all queues and topics again.
 	private method reconnect {} {
 		debug "trying to reconnect..." INFO
 		if {[catch {connect "" -reconnect 1} err] == 1} {
@@ -265,23 +313,16 @@ class tStomp {
 		handleLine $line
 	}
 
-	public method handleHeartBeatFail {} {
-		set isConnected 0
-		# negative heart beat ack - check it with isConnected
-		eval $heartBeatScript
-
-		# this can take some seconds
+	public method handleHeartBeatTimeout {} {
+		debug "handleHeartBeatTimeout" WARNING
 		closeAndReconnect
-
-		# heart beat ack - check it with isConnected
-		eval $heartBeatScript
 	}
 
 	private method recreateAfterScriptForHeartBeatFail {} {
 		set timeInMs [expr $heartBeatExpected*3<10000?10000:$heartBeatExpected*3]
 		# debug "recreateAfterScriptForHeartBeatFail called $timeInMs" FINEST
 		after cancel $heartBeatAfterId
-		set heartBeatAfterId [after $timeInMs "$this handleHeartBeatFail"] 
+		set heartBeatAfterId [after $timeInMs "$this handleHeartBeatTimeout"] 
 	}
 
 	private method handleHeartBeat {} {
@@ -291,11 +332,13 @@ class tStomp {
 		if {$heartBeatExpected} {
 			recreateAfterScriptForHeartBeatFail
 			# positive heart beat - check it with isConnected
-			eval $heartBeatScript
+			execute handleHeartBeat $heartBeatScript [list] $isConnected $host $port
 		}
 	}
 
-	# Method called whenever input arrives on a connection. Server Responses for the commands
+	#Method called whenever input arrives on a connection. Server Responses for the commands
+	#		splits message in command, headers and messagebody (e.g. command: MESSAGE header: server:ActiveMQ/version-name version:1.1 session:ID:host-uniqueid messagebody: testMessage)
+	#		calls methods depending on command (e.g. onConnectScript if CONNECTED, on_receive if MESSAGE)
 	private method handleLine {line} {
 		# debug $readStatus FINEST
 		set endOfMessage 0
@@ -380,7 +423,7 @@ class tStomp {
 					connectCallback
 
 					# external connect callback
-					execute connect $onConnectScript
+					execute connect $onConnectScript [list] $isConnected $host $port
 				}
 				MESSAGE {
 					on_receive
@@ -407,6 +450,7 @@ class tStomp {
 	}
 
 	# invoked when the server response frame is MESSAGE
+	#		converts messagebody from utf-8 and calls execute with the encoded message
 	private method on_receive {} {
 		if {[info exists params(messagebody)]} {
 			set params(messagebody) [encoding convertfrom utf-8 $params(messagebody)]
@@ -422,23 +466,20 @@ class tStomp {
 			return
 		}
 	
-		execute $destination $scriptsOfSubscribedDestinations($destination) [array get params]
+		execute $destination $scriptsOfSubscribedDestinations($destination) [array get params] $isConnected $host $port
 	}
 	
-	# executes a script, e.g. a script defined for a destination or the callback script
-	private method execute {destination script {messageNvList {}}} {
-		debug "im stomp execute: $script ---- | ---- $messageNvList" FINE
-		
+	# executes a script, e.g. a script defined for a destination or the callback script. The local variable $messageNvList $isConnected $host $port are available within the script.
+	private method execute {destination script messageNvList isConnected host port} {
+		debug "execute destination=$destination script='$script' messageNvList='$messageNvList' isConnected=$isConnected host=$host port=$port" FINE
 		#  if a global execute_thread command is available, use it
 		if [llength [info command execute_thread]] {
-			debug "execute_thread $script $messageNvList" FINEST
-			execute_thread $script $messageNvList
+			execute_thread $script $messageNvList $isConnected $host $port
 		} else {
-			debug "uplevel $script $messageNvList" FINEST
 			if {![llength [info commands ::tStompCallbacks-${this}::$destination]]} {
-				proc ::tStompCallbacks-${this}::$destination {messageNvList} $script
+				proc ::tStompCallbacks-${this}::$destination {messageNvList isConnected host port} $script
 			}
-			::tStompCallbacks-${this}::$destination $messageNvList
+			::tStompCallbacks-${this}::$destination $messageNvList $isConnected $host $port
 		}
 	}
 
@@ -729,7 +770,6 @@ class tStomp {
 	}
 	
 	proc parseStompUrl {stompUrl} {
-		# we parse for failover but we don't support it yet
 		
 		if ![set failover [regexp {failover:\((.*)\)} $stompUrl all brokerUrlList]] {
 			set brokerUrlList $stompUrl
@@ -738,7 +778,7 @@ class tStomp {
 		set brokerList [list]
 
 		foreach brokerUrl [split $brokerUrlList ,] {
-			regsub "stomp://" $brokerUrl "" brokerInfo
+			regsub "stomp:(tcp:)?//" $brokerUrl "" brokerInfo
 			
 			set brokerInfo [split [split $brokerInfo ":"] "@"]
 

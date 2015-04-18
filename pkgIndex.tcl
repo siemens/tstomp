@@ -1,1 +1,1 @@
-package ifneeded tStomp 0.6 [list source [file join $dir tStomp.tcl]]
+package ifneeded tStomp 0.8 [list source [file join $dir tStomp.tcl]]

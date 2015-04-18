@@ -17,7 +17,9 @@ lappend auto_path ./
 package require tStomp
 
 # Setting ServerURL
-set ::serverURL stomp://system:manager@localhost:61612
+set ::serverURL stomp://system:manager@localhost:61613
+set ::failoverServerURL failover:(stomp:tcp://invalid:invalid@localhost:99999,stomp:tcp://system:manager@localhost:61613)
+
 set ::runs 0
 
 proc getNewQueue {} {
@@ -43,7 +45,7 @@ proc stompcallback {messageNvList} {
 }
 
 # to skip tests - add them here:
-# tcltest::configure -skip [list Stomp_handleLine Stomp_connect Stomp_disconnect Stomp_Send Stomp_Double_Header Stomp_subscribe Stomp_unsubscribe Stomp_durably_subscribe]
+#tcltest::configure -skip [list Stomp_handleLine Stomp_connect Stomp_disconnect Stomp_Send Stomp_Double_Header Stomp_subscribe Stomp_unsubscribe Stomp_durably_subscribe Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_successful_connection Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost]
 
 test Stomp_connect {} -body {
 	puts "## Stomp_connect"
@@ -52,7 +54,13 @@ test Stomp_connect {} -body {
 	# Connect
 	catch {delete object ::s}
 	tStomp ::s $::serverURL
-	::s connect {set ::result "CONNECTED"}
+	::s connect {
+		if {$isConnected} {
+			set ::result "CONNECTED"
+		} else {
+			set result "NOT CONNECTED"
+		}
+	}
 
 	unset -nocomplain -- ::result
 	set afterId [after 5000 {set ::result "NOT CONNECTED"; puts "Excute after!"}]
@@ -94,7 +102,6 @@ test Stomp_connect {} -body {
 	return 1	
 } -result "1"
 
-
 test Stomp_disconnect {} -body {
 	puts "## Stomp_disconnect"
 	catch {delete object ::s}
@@ -111,7 +118,6 @@ test Stomp_disconnect {} -body {
 
 	return 1
 } -result "1"
-
 
 test Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_successful_connection {} -body {
 	puts "##  Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_successful_connection "
@@ -146,7 +152,7 @@ test Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost 
 	# GIVEN:
 	catch {delete object ::s}
 	tStomp ::s $::serverURL
-	::s connect {set ::result "CONNECTED"} -heartBeatScript {puts "heart beat";if {![::s getIsConnected]} {set ::result2 "DISCONNECTION NOTICED"} else {set ::result3 "CONNECTION NOTICED"}}  -heartBeatExpected 1000
+	::s connect {set ::result "CONNECTED"} -heartBeatScript {puts "heart beat";if {!$isConnected} {set ::result2 "DISCONNECTION NOTICED"} else {set ::result3 "CONNECTION NOTICED"}}  -heartBeatExpected 1000
 
 	unset -nocomplain -- ::result
 	set afterId [after 5000 {set ::result "NOT CONNECTED"; puts "Excute after!"}]
@@ -197,6 +203,53 @@ test Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost 
 	}
 
 	return 1	
+} -result "1"
+
+test Stomp_connect_should_failover_from_invalid_to_next_valid_broker {} -body {
+	puts "## Stomp_connect_should_failover_to_next_broker"
+
+	# GIVEN:
+	catch {delete object ::s}
+	tStomp ::s $::failoverServerURL
+
+	# WHEN:
+	::s connect {set ::result "CONNECTED"} 
+
+	unset -nocomplain -- ::result
+	set afterId [after 5000 {set ::result "NOT CONNECTED"; puts "Excute after!"}]
+	vwait ::result
+	catch {after cancel $afterId}
+
+	# THEN:
+	if {$::result == "NOT CONNECTED"} {
+		puts "### NOT CONNECTED $::result"
+		error "In testcase 'Stomp_connect_should_failover_to_next_broker' Connection failed"
+	}
+
+	if {![::s getIsConnected]} {
+		error "In testcase 'Stomp_connect_should_failover_to_next_broker' Not Connected"
+	}
+
+	return 1	
+} -result "1"
+
+test Stomp_connect_should_fail_if_all_brokers_are_invalid {} -body {
+	puts "## Stomp_connect_should_fail_if_all_brokers_are_invalid"
+
+	# GIVEN:
+	catch {delete object ::s}
+	tStomp ::s "failover:(stomp:tcp://invalid:invalid@localhost:99999,stomp:tcp://invalid:invalid@localhost:99999)"
+	set err ""
+
+	# WHEN:
+	set r [catch {::s connect {set ::result "CONNECTED"}} err]
+	
+	if {[string first "connection to '{localhost 99999 invalid invalid} {localhost 99999 invalid invalid}' not possible." $err]!=0} {
+		error "expected error message not matched"
+	}
+
+	return $r
+
 } -result "1"
 
 test Stomp_Send {} -body {
@@ -332,8 +385,6 @@ test Stomp_subscribe {} -body {
 
 } -result "1"
 
-
-
 test Stomp_durably_subscribe {} -body {
 	puts "## Stomp_durably_subscribe"
 	set topic_subscribe [getTopic]
@@ -375,8 +426,6 @@ test Stomp_durably_subscribe {} -body {
 	return 1
 
 } -result "1"
-
-
 
 test Stomp_unsubscribe {} -body {
 	puts "## Stomp_unsubscribe"
@@ -424,7 +473,6 @@ test Stomp_unsubscribe {} -body {
 	return 1
 
 } -result "1"
-
 
 test Stomp_handleLine {} -body {
 
@@ -506,7 +554,29 @@ set message [list \
 
 } -result "1"
 
+test Stomp_parseStompUrl_Should_parse_failover_connect_string_correctly {} -body {
+	
+	set r [tStomp::parseStompUrl failover:(stomp:tcp://system:xxx@localhost:61613,stomp:tcp://system:xxx@centralHost:61613)]
+	
+	return $r
+	
+} -result "1 {{localhost 61613 system xxx} {centralHost 61613 system xxx}}"
 
+test Stomp_parseStompUrl_Should_parse_connect_string_correctly {} -body {
+	
+	set r [tStomp::parseStompUrl stomp:tcp://system:xxx@localhost:61613]
+	
+	return $r
+	
+} -result "0 {{localhost 61613 system xxx}}"
+
+test Stomp_parseStompUrl_Should_parse_failover_without_tcp_in_connect_string_correctly {} -body {
+	
+	set r [tStomp::parseStompUrl failover:(stomp://system:xxx@localhost:61613,stomp:tcp://system:xxx@centralHost:61613)]
+	
+	return $r
+	
+} -result "1 {{localhost 61613 system xxx} {centralHost 61613 system xxx}}"
 
 
 cleanupTests
