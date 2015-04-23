@@ -63,11 +63,11 @@ After connecting tStomp is able to either send messages and subscribe to queues.
 	
 To send a message different headers may be given. Possible options are:
 	
-	-ttl (time to live) in milliseconds
-	-correaltionId
-	-replyTo
-	-persistent
-	-headers -> a list in which all other headers are given
+	-ttl <time-to-live-in-milliseconds>
+	-correlationId <id>
+	-replyTo <queueName>
+	-persistent true|false
+	-headers <name-value-list>  // The parameters ttl, correlationId, replyTo and persistent will overwrite the corresponding headers.
 	
 The only header the send command does need is destination. The simplest send command would be:
 	
