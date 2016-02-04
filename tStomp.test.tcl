@@ -18,7 +18,12 @@ package require tStomp
 
 # Setting ServerURL
 set ::serverURL stomp://system:manager@localhost:61613
-set ::failoverServerURL failover:(stomp:tcp://invalid:invalid@localhost:99999,stomp:tcp://system:manager@localhost:61613)
+# overwrite by env Variable
+if {$::env(stompServerURL)!=""} {
+	set ::serverURL $::env(stompServerURL)
+}
+set ::failoverServerURL "failover:(stomp:tcp://invalid:invalid@localhost:99999,$::serverURL)"
+
 
 set ::runs 0
 
@@ -53,6 +58,7 @@ test Stomp_connect {} -body {
 
 	# Connect
 	catch {delete object ::s}
+	catch {rename ::s ""}
 	tStomp ::s $::serverURL
 	::s connect {
 		if {$isConnected} {
@@ -105,6 +111,7 @@ test Stomp_connect {} -body {
 test Stomp_disconnect {} -body {
 	puts "## Stomp_disconnect"
 	catch {delete object ::s}
+	catch {rename ::s ""}
 	tStomp ::s $::serverURL
 
 	# disconnect
@@ -125,6 +132,7 @@ test Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_successful_conne
 
 	# GIVEN:
 	catch {delete object ::s}
+	catch {rename ::s ""}
 	tStomp ::s $::serverURL
 
 	# WHEN connecting with heartBeat callback script:
@@ -151,8 +159,11 @@ test Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost 
 
 	# GIVEN:
 	catch {delete object ::s}
+	catch {rename ::s ""}
 	tStomp ::s $::serverURL
-	::s connect {set ::result "CONNECTED"} -heartBeatScript {puts "heart beat";if {!$isConnected} {set ::result2 "DISCONNECTION NOTICED"} else {set ::result3 "CONNECTION NOTICED"}}  -heartBeatExpected 1000
+	
+	# do the connect with a quick supervision 
+	::s connect {set ::result "CONNECTED"} -supervisionTime 5 -heartBeatScript {puts "heart beat";if {!$isConnected} {set ::result2 "DISCONNECTION NOTICED"} else {set ::result3 "CONNECTION NOTICED"}}  -heartBeatExpected 1000
 
 	unset -nocomplain -- ::result
 	set afterId [after 5000 {set ::result "NOT CONNECTED"; puts "Excute after!"}]
@@ -210,6 +221,7 @@ test Stomp_connect_should_failover_from_invalid_to_next_valid_broker {} -body {
 
 	# GIVEN:
 	catch {delete object ::s}
+	catch {rename ::s ""}
 	tStomp ::s $::failoverServerURL
 
 	# WHEN:
@@ -238,6 +250,7 @@ test Stomp_connect_should_fail_if_all_brokers_are_invalid {} -body {
 
 	# GIVEN:
 	catch {delete object ::s}
+	catch {rename ::s ""}
 	tStomp ::s "failover:(stomp:tcp://invalid:invalid@localhost:99999,stomp:tcp://invalid:invalid@localhost:99999)"
 	set err ""
 
@@ -257,6 +270,7 @@ test Stomp_Send {} -body {
 	set queue [getNewQueue]
 	# Connect
 	catch {delete object ::s}
+	catch {rename ::s ""}
 	tStomp ::s $::serverURL
 	::s connect {set ::result CONNECTED}
 	after 5000 [list set ::result "NOT CONNECTED"]
@@ -281,6 +295,7 @@ test Stomp_Double_Header {} -body {
 	set queue [getNewQueue]
 	# Connect
 	catch {delete object ::s}
+	catch {rename ::s ""}
 	tStomp ::s $::serverURL
 	::s connect {set ::result CONNECTED}
 	after 5000 [list set ::result "NOT CONNECTED"]
@@ -305,6 +320,7 @@ test Stomp_Double_Header {} -body {
 	set queue [getNewQueue]
 	# Connect
 	catch {delete object ::s}
+	catch {rename ::s ""}
 	tStomp ::s $::serverURL
 	::s connect {set ::result CONNECTED}
 
@@ -330,6 +346,7 @@ test Stomp_subscribe {} -body {
 	set queue_subscribe [getNewQueue]
 	# Connect
 	catch {delete object ::s}
+	catch {rename ::s ""}
 	tStomp ::s $::serverURL
 	::s connect {set ::result CONNECTED}
 	after 5000 [list set ::result "NOT CONNECTED"]
@@ -390,6 +407,7 @@ test Stomp_durably_subscribe {} -body {
 	set topic_subscribe [getTopic]
 	# Connect
 	catch {delete object ::s}
+	catch {rename ::s ""}
 	tStomp ::s $::serverURL
 	::s connect {set ::result CONNECTED} {client-id tStompTest}
 	after 5000 [list set ::result "NOT CONNECTED"]
@@ -431,6 +449,7 @@ test Stomp_unsubscribe {} -body {
 	puts "## Stomp_unsubscribe"
 	set queue_unsubscribe [getNewQueue]
 	catch {delete object ::s}
+	catch {rename ::s ""}
 	tStomp ::s $::serverURL
 
 	# unsubscribed
@@ -479,6 +498,7 @@ test Stomp_handleLine {} -body {
 	puts "## Stomp_handleLine"
 	set queue_handleLine [getNewQueue]
 	catch {delete object ::s}
+	catch {rename ::s ""}
 	tStomp ::s $::serverURL
 
 	# Connect

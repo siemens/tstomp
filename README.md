@@ -1,7 +1,7 @@
 # tStomp
 This is a Stomp Implementation for Tcl coded in pure Tcl.
 
-**Current Version 0.8**
+**Current Version 0.9**
 
 Stomp stands for "Streaming Text Orientated Messaging Protocol". This implementation is based on Stomp 1.2 specification, which can be found at http://stomp.github.com/stomp-specification-1.2.html. For futher information about Tcl, visit their homepage at http://www.tcl.tk.
 
@@ -20,11 +20,19 @@ Source code: https://github.com/siemens/tstomp.git
        		<transportConnector name="stomp" uri="stomp://0.0.0.0:61613"/>
         </transportConnectors>
     ```
-* Running unit tests:
+* Running integration tests:
+	set the environment variable stompServerURL to your Broker
     * start tcl console, run
      ```
         source tStomp.test.tcl
      ```
+    * or run it in under e.g. under Windows in CMD Box 
+     ```
+    	set stompServerURL=stomp://system:manager@yourBrokerHost:61613
+    	set TCLLIBPATH="C:/yourLibPath/noarch"
+		cd c:\yourTclInstallation
+		.\tclsh.exe noarch\tstomp\tStomp.test.tcl
+     ``` 
 
 * Running load tests:
     * start JMeter (https://jmeter.apache.org), load ActiveMQPublishSubscribe.jmx, start tcl console and config and source EchoTest.tcl
@@ -67,8 +75,7 @@ To send a message different headers may be given. Possible options are:
 	-correlationId <id>
 	-replyTo <queueName>
 	-persistent true|false
-	-headers <name-value-list>  // The parameters ttl, correlationId, replyTo and persistent will overwrite the corresponding headers.
-	
+	-headers <name-value-list>  // The parameters ttl, correlationId, replyTo and persistent will overwrite the corresponding headers.	
 The only header the send command does need is destination. The simplest send command would be:
 	
 	tStomp_instance send "/queue/exampleQueue"
@@ -188,10 +195,12 @@ tStomp has 4 errors implemented:
 		public setWriteSocketFile {status}
 			set to enable logging. tStomp log is written in tStomp.log . if nothing is set logging is disabled
 ```
-Integration Tests are found in tStomp.tcl.test .
+Integration Tests are found in tStomp.test.tcl .
 		
 
 # History
+*  Version 0.9 2016-02-04:
+	 * added supervision support: after a connection, no reconnect is allowed within supervisionTime period 
 *  Version 0.8 2015-04-18:
      * added support for simple failover 
      * signature of execute_thread extended by parameters isConnected, host and port !

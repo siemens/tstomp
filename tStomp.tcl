@@ -13,7 +13,7 @@
 # -wrongArgs
 # -notSuscribedToGivenDestination
 
-package provide tStomp 0.8
+package provide tStomp 0.9
 
 package require Itcl
 package require struct::set
@@ -92,6 +92,14 @@ class tStomp {
 	# for heart beat timeout handling
 	variable heartBeatAfterId ""
 
+	# min heartbeat timeout
+	variable minHeartBeatTime 10000
+
+	# supervisionTime: after a connection, no reconnect is allowed within this period (in sec)
+	variable supervisionTime 180
+
+	# timestamp of last connection
+	variable supervisionTimeStamp 0
 
 	# Class called with the ipaddress and port and values are initialised in the constructor
 	constructor {stompUrl} {} {
@@ -117,16 +125,18 @@ class tStomp {
 	# @param connectScript callback script for receiving CONNECTED message
 	# @param additionalHeaders additional headers; name-value list
 	public method connect {connectScript args} {
-
 		
 		set options {
 			{heartBeatScript.arg "" "'script to be called after receifing heartBeat'"}
 			{heartBeatExpected.arg 0 "'heart beat expected every <heartBeatExpected> ms'"}
 			{reconnect.arg 0 "'reconnection 0|1 - use previous parameters'"}
+			{supervisionTime.arg 180 "'after a connection, no reconnect is allowed within <supervisionTime> (in sec)'"}
 		}
 	
 		array set option [cmdline::getKnownOptions args $options]
-		
+	
+		set supervisionTime	$option(supervisionTime)
+
 		if {!$option(reconnect)} {
 			switch -exact [llength $args] {
 				0 {set additionalHeaders ""}
@@ -137,9 +147,6 @@ class tStomp {
 			}
 			set heartBeatExpected $option(heartBeatExpected)
 			set heartBeatScript $option(heartBeatScript)
-			if {$heartBeatExpected} {
-				recreateAfterScriptForHeartBeatFail 
-			}
 		}
 		
 		if {$isConnected} {
@@ -249,13 +256,18 @@ class tStomp {
 	private method closeAndReconnect {} {
 		debug "closeAndReconnect" WARNING
 
+		catch {fileevent $connection_to_server readable ""}
 		catch {close $connection_to_server}
+
 		set isConnected 0
 
 		if {$heartBeatExpected} {
 			# call heart beat callback with isConnected=0
 			execute handleHeartBeat $heartBeatScript [list] $isConnected $host $port
 		}
+
+		# switch of heartbeat until connection is reestublished
+		after cancel $heartBeatAfterId
 
 		# be careful when using multiple connections, the following construct will block all of them
 		after 5000
@@ -285,13 +297,19 @@ class tStomp {
 	# After the re-/connect succeeded, try to restore the existing subscriptions
 	private method connectCallback {} { 
 		debug "connection re-/established" INFO
-		
+	
 		if {[array size scriptsOfSubscribedDestinations] != 0} {
 			foreach {destname} [array names scriptsOfSubscribedDestinations] {
 				_subscribe "$destname" {}
 
 				debug "Re-subscribed to $destname" INFO
 			}
+		}
+
+		# now time to switch heart beat on - but slowly we do not want continous reconnection 
+		if {$heartBeatExpected} {
+			set supervisionTimeStamp [clock seconds]
+			recreateAfterScriptForHeartBeatFail 
 		}
 	}
 	
@@ -313,20 +331,24 @@ class tStomp {
 		handleLine $line
 	}
 
-	public method handleHeartBeatTimeout {} {
-		debug "handleHeartBeatTimeout" WARNING
-		closeAndReconnect
+	public method handleHeartBeatTimeout {} {	
+		if {[expr [clock seconds] - $supervisionTimeStamp] > $supervisionTime} {
+			debug "handleHeartBeatTimeout" WARNING
+			closeAndReconnect
+		} else {
+			debug "handleHeartBeatTimeout supervsion: reconnect ignored" WARNING
+		}
 	}
 
 	private method recreateAfterScriptForHeartBeatFail {} {
-		set timeInMs [expr $heartBeatExpected*3<10000?10000:$heartBeatExpected*3]
-		# debug "recreateAfterScriptForHeartBeatFail called $timeInMs" FINEST
+		set timeInMs [expr $heartBeatExpected*3<$minHeartBeatTime?$minHeartBeatTime:$heartBeatExpected*3]
+		# debug "recreateAfterScriptForHeartBeatFail called $timeInMs" INFO
 		after cancel $heartBeatAfterId
 		set heartBeatAfterId [after $timeInMs "$this handleHeartBeatTimeout"] 
 	}
 
 	private method handleHeartBeat {} {
-		# debug "handleHeartBeat [getIsConnected] $heartBeatExpected" FINEST
+		# debug "handleHeartBeat [getIsConnected] $heartBeatExpected" INFO
 			
 		# handling a positive connection heart beat...
 		if {$heartBeatExpected} {
@@ -409,12 +431,12 @@ class tStomp {
 				CONNECTED {
 					set isConnected 1
 
-					if [info exists params(version)] {
+					if {[info exists params(version)]} {
 						set stompVersion $params(version)
 						debug "Stomp version: $stompVersion" FINE
 					}
 
-					if [info exists params(server)] {
+					if {[info exists params(server)]} {
 						set serverInfo $params(server)
 						debug "Server information: $serverInfo" FINE
 					}
@@ -722,10 +744,13 @@ class tStomp {
 			flush $connection_to_server
 		}
 
-		if {[catch {
-			close $connection_to_server
-		} err]} {
-			debug "disconnect close: $err" ERROR
+		if {[info exists connection_to_server]} {
+			if {[catch {
+				close $connection_to_server
+			} err]} {
+				debug "error during disconnect close: $err" INFO
+			}
+			unset connection_to_server
 		}
 		
 		array unset scriptsOfSubscribedDestinations
