@@ -23,16 +23,18 @@ Source code: https://github.com/siemens/tstomp.git
 * Running integration tests:
 	set the environment variable stompServerURL to your Broker
     * start tcl console, run
-     ```
+    
+    ```
         source tStomp.test.tcl
-     ```
+    ```
     * or run it in under e.g. under Windows in CMD Box 
-     ```
+	
+	```
     	set stompServerURL=stomp://system:manager@yourBrokerHost:61613
     	set TCLLIBPATH="C:/yourLibPath/noarch"
 		cd c:\yourTclInstallation
 		.\tclsh.exe noarch\tstomp\tStomp.test.tcl
-     ``` 
+    ``` 
 
 * Running load tests:
     * start JMeter (https://jmeter.apache.org), load ActiveMQPublishSubscribe.jmx, start tcl console and config and source EchoTest.tcl
