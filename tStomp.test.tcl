@@ -599,5 +599,8 @@ test Stomp_parseStompUrl_Should_parse_failover_without_tcp_in_connect_string_cor
 } -result "1 {{localhost 61613 system xxx} {centralHost 61613 system xxx}}"
 
 
+array set testResult [array get ::tcltest::numTests]
+
 cleanupTests
-return
+
+exit $testResult(Failed)
