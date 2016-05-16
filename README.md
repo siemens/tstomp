@@ -16,29 +16,28 @@ Source code: https://github.com/siemens/tstomp.git
     * add transport connectors:
 
 ``` xml
-    <transportConnectors>
-       	...     
-       	<transportConnector name="stomp" uri="stomp://0.0.0.0:61613"/>
-    </transportConnectors>
+<transportConnectors>
+	...     
+	<transportConnector name="stomp" uri="stomp://0.0.0.0:61613"/>
+</transportConnectors>
 ```
 * Running integration tests:
-	set the environment variable stompServerURL to your Broker
-    * start tcl console, run
+set the environment variable stompServerURL to your Broker, start tcl console and run
     
 ``` tcl
-    source tStomp.test.tcl
+source tStomp.test.tcl
 ```
-    * or run it in under e.g. under Windows in CMD Box 
+* or run it in under e.g. under Windows in CMD Box 
 	
 ``` bat
-   	set stompServerURL=stomp://system:manager@yourBrokerHost:61613
-    set TCLLIBPATH="C:/yourLibPath/noarch"
-	cd c:\yourTclInstallation
-	.\tclsh.exe noarch\tstomp\tStomp.test.tcl
+set stompServerURL=stomp://system:manager@yourBrokerHost:61613
+set TCLLIBPATH="C:/yourLibPath/noarch"
+cd c:\yourTclInstallation
+.\tclsh.exe noarch\tstomp\tStomp.test.tcl
 ``` 
 
 * Running load tests:
-	start JMeter (https://jmeter.apache.org), load ActiveMQPublishSubscribe.jmx, start tcl console and config and source EchoTest.tcl
+start JMeter (https://jmeter.apache.org), load ActiveMQPublishSubscribe.jmx, start tcl console and config and source EchoTest.tcl
   
 ## Tutorial	
 
@@ -54,12 +53,12 @@ or more advanced connction string for failover:
 		
 Create a tStomp object and connect to a broker:
 ``` tcl		
-	tStomp tStomp_instance $stompUrl
-	tStomp_instance connect {puts "connection established to $host $port"} 
+tStomp tStomp_instance $stompUrl
+tStomp_instance connect {puts "connection established to $host $port"} 
 ```			
 After connection is established tStomp is able to publish messages and subscribe to queues.
 ``` tcl	
-	tStomp_instance send "/queue/exampleQueue" "best whishes!"
+tStomp_instance send "/queue/exampleQueue" "best whishes!"
 ```	
 The send command has some optional arguments:
 ``` tcl
@@ -71,47 +70,47 @@ The send command has some optional arguments:
 ```		
 e.g.:
 ``` tcl
-	tStomp_instance send -ttl 300000 -replyTo "/queue/replyToQueue" -headers [list correlationId 1 content-type String] "/queue/exampleQueue" "best whishes!"
+tStomp_instance send -ttl 300000 -replyTo "/queue/replyToQueue" -headers [list correlationId 1 content-type String] "/queue/exampleQueue" "best whishes!"
 ```	
 If a option is set the header will be ignored.
 ``` tcl	
-	tStomp_instance send -replyTo "/queue/replyToQueue" -headers [list reply-to "/queue/IgnoredQueue"] "/queue/exampleQueue" "message"
+tStomp_instance send -replyTo "/queue/replyToQueue" -headers [list reply-to "/queue/IgnoredQueue"] "/queue/exampleQueue" "message"
 ```	
 The option/header ttl is an exception. The ActiveMQ Broker does only have expires as the Expiration Time. It does not support ttl. If the header/option ttl is set a header expires will be generated.
 If the header expires is set, the header ttl will be ignored, the option ttl will overwrite it though. A ttl of 0 will result in an Expiration Time of 0, meaning it will not expire.
 ``` tcl			
-	tStomp_instance send -ttl 300000 "/queue/exampleQueue" "message" -> Expiration Time 300 seconds from now
-	tStomp_instance send -headers [list expires 300000] "/queue/exampleQueue" "message" -> Expiration Time 300 seconds from now
-	tStomp_instance send -ttl 300000 -headers [list ttl 150000] "/queue/exampleQueue" "message" -> Expiration Time 300 seconds from now
-	tStomp_instance send -headers [list ttl 150000 expires 300000] "/queue/exampleQueue" "message" -> Expiration Time 300 seconds from now
-	tStomp_instance send -ttl 300000 -headers [list expires 150000] "/queue/exampleQueue" "message" -> Expiration Time 300 seconds from now
+tStomp_instance send -ttl 300000 "/queue/exampleQueue" "message" -> Expiration Time 300 seconds from now
+tStomp_instance send -headers [list expires 300000] "/queue/exampleQueue" "message" -> Expiration Time 300 seconds from now
+tStomp_instance send -ttl 300000 -headers [list ttl 150000] "/queue/exampleQueue" "message" -> Expiration Time 300 seconds from now
+tStomp_instance send -headers [list ttl 150000 expires 300000] "/queue/exampleQueue" "message" -> Expiration Time 300 seconds from now
+tStomp_instance send -ttl 300000 -headers [list expires 150000] "/queue/exampleQueue" "message" -> Expiration Time 300 seconds from now
 
-	tStomp_instance send -headers [list ttl 0] "/queue/exampleQueue" "message" -> Expiration Time 0, the message will not expire
-	tStomp_instance send -headers [list expires 0] "/queue/exampleQueue" "message" -> Expiration Time 0, the message will not expire
-	tStomp_instance send -ttl 0 "/queue/exampleQueue" "message" -> Expiration Time 0, the message will not expire
+tStomp_instance send -headers [list ttl 0] "/queue/exampleQueue" "message" -> Expiration Time 0, the message will not expire
+tStomp_instance send -headers [list expires 0] "/queue/exampleQueue" "message" -> Expiration Time 0, the message will not expire
+tStomp_instance send -ttl 0 "/queue/exampleQueue" "message" -> Expiration Time 0, the message will not expire
 ```		
 ** it is important that the Broker and tStomp run on the same timezone or else the difference is calculated **
 		
 Subscribing to a queue will enable to receive messages which are sent to that queue. Every time a message is received the callBackScript is called.
 ``` tcl	
-	tStomp_instance subscribe "/queue/subscribeQueue" {puts "message received"}
+tStomp_instance subscribe "/queue/subscribeQueue" {puts "message received"}
 ```		
 After a broker failover, all subscribe commands will be re-executed. 	
 	
 The unsubscribe method unsubscribes from the given queue and erases the correlating callBackScript.
 ``` tcl	
-	tStomp_instance unsubscribe "/queue/exampleQueue"
+tStomp_instance unsubscribe "/queue/exampleQueue"
 ```	
 To disconnect the disconnect method may be called. It is possible to force the disconnect with the parameter force. If force is set the notConnected error is ignored.
 ``` tcl	
-	tStomp_instance disconnect -> force = 0
-	tStomp_instance disconnect 1 -> force = 1
+tStomp_instance disconnect -> force = 0
+tStomp_instance disconnect 1 -> force = 1
 ```		
 
 ## Heart Beat Implementation
 A first step towards Stomp 1.2 compatibility is the implementation of heart beat messages. With tStomp it is possible to ask the server for sending periodic heart beats. About all heartBeatExpected (in ms) the script heartBeatScript will be called. If the connection get's lost, a reconnection is triggered. 
 ``` tcl
-	tStomp_instance connect {puts "CONNECTED"} -heartBeatScript {puts "heart beat isConnected=$isConnected host=$host port=$port"}  -heartBeatExpected 1000
+tStomp_instance connect {puts "CONNECTED"} -heartBeatScript {puts "heart beat isConnected=$isConnected host=$host port=$port"}  -heartBeatExpected 1000
 ```
 
 ## Error Handling
