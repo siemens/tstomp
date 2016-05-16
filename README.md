@@ -1,4 +1,4 @@
-# tStomp
+# tStomp [![Build Status](https://travis-ci.org/siemens/tstomp.svg?branch=master)](https://travis-ci.org/siemens/tstomp)
 This is a Stomp Implementation for Tcl coded in pure Tcl.
 
 **Current Version 0.9**
