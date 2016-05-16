@@ -14,7 +14,7 @@ Source code: https://github.com/siemens/tstomp.git
     * edit activemq.xml
     * add transport connectors:
 
-    ```
+    ``` xml
        <transportConnectors>
        		...     
        		<transportConnector name="stomp" uri="stomp://0.0.0.0:61613"/>
@@ -24,12 +24,12 @@ Source code: https://github.com/siemens/tstomp.git
 	set the environment variable stompServerURL to your Broker
     * start tcl console, run
     
-    ```
+    ``` tcl
         source tStomp.test.tcl
     ```
     * or run it in under e.g. under Windows in CMD Box 
 	
-	```
+	``` bat
     	set stompServerURL=stomp://system:manager@yourBrokerHost:61613
     	set TCLLIBPATH="C:/yourLibPath/noarch"
 		cd c:\yourTclInstallation
@@ -41,114 +41,81 @@ Source code: https://github.com/siemens/tstomp.git
   
 ## Tutorial	
 
-As the TCL implementation of STOMP the tStomp is able to connect to a message broker to send, receive and handle asynchronous messages.
+tStomp is a TCL implementation of the STOMP protocol. You can connect to a message broker, publish and subscribe to queues and topics.
 	
 To use tStomp, at first a connection to the Broker must be established. All information about the Broker is given by a stompUrl to tStomp. The stompUrl must have the format
 	
 	stomp://username:password@host:port
 
-	or more advanced connction string for failover:
+or more advanced connction string for failover:
 
 	failover:(stomp:tcp://username:password@activemqhost1:61613,stomp:tcp://username:password@activemqhost2:61613)
 		
 When creating an object of tStomp the stompUrl is given as a parameter. tStomp splits the stompUrl and saves host, port, username and password in local variables.
-		
+``` tcl		
 	tStomp tStomp_instance $stompUrl
-		
+```		
 The connect method uses the information in the variables to establish the connection. A callBackScript is given which is called as soon as the connection is established.
-	
+``` tcl	
 	tStomp_instance connect {puts "connection established to $host $port"} 
-		
-A simple test to see if the connection is established in a certain time:
-		
-	tStomp_instance connect {set ::result CONNECTED}
-	after 5000 [list set ::result "NOT CONNECTED"]
-	vwait ::result
-	if {$::result == "NOT CONNECTED"} {
-		error "In testcase 'Stomp_connect' Connection failed"
-		puts "### NOT CONNECTED"
-	}
-	
-After connecting tStomp is able to either send messages and subscribe to queues.
-	
-To send a message different headers may be given. Possible options are:
-	
+```			
+After connection is established tStomp is able to publish messages and subscribe to queues.
+``` tcl	
+	tStomp_instance send "/queue/exampleQueue" "best whishes !"
+```	
+The send command has some optional arguments:
+``` tcl
 	-ttl <time-to-live-in-milliseconds>
 	-correlationId <id>
 	-replyTo <queueName>
 	-persistent true|false
 	-headers <name-value-list>  // The parameters ttl, correlationId, replyTo and persistent will overwrite the corresponding headers.	
-The only header the send command does need is destination. The simplest send command would be:
-	
-	tStomp_instance send "/queue/exampleQueue"
-		
-With a given message:
-		
-	tStomp_instance send "/queue/exampleQueue" ""
-		
-	tStomp_instance send "/queue/exampleQueue" "message"
-		
-With other headers:
-		
-	tStomp_instance send -ttl 300000 -replyTo "/queue/replyToQueue" -headers [list correlationId 1 content-type String] "/queue/exampleQueue" "message"
-		
+```		
+e.g.:
+``` tcl
+	tStomp_instance send -ttl 300000 -replyTo "/queue/replyToQueue" -headers [list correlationId 1 content-type String] "/queue/exampleQueue" "best whishes !"
+```	
 If a option is set the header will be ignored.
-		
+``` tcl	
 	tStomp_instance send -replyTo "/queue/replyToQueue" -headers [list reply-to "/queue/IgnoredQueue"] "/queue/exampleQueue" "message"
-	
+```	
 The option/header ttl is an exception. The ActiveMQ Broker does only have expires as the Expiration Time. It does not support ttl. If the header/option ttl is set a header expires will be generated.
 If the header expires is set, the header ttl will be ignored, the option ttl will overwrite it though.
-		
+``` tcl			
 	tStomp_instance send -ttl 300000 "/queue/exampleQueue" "message" -> Expiration Time 300 seconds from now
 	tStomp_instance send -headers [list expires 300000] "/queue/exampleQueue" "message" -> Expiration Time 300 seconds from now
 	tStomp_instance send -ttl 300000 -headers [list ttl 150000] "/queue/exampleQueue" "message" -> Expiration Time 300 seconds from now
 	tStomp_instance send -headers [list ttl 150000 expires 300000] "/queue/exampleQueue" "message" -> Expiration Time 300 seconds from now
 	tStomp_instance send -ttl 300000 -headers [list expires 150000] "/queue/exampleQueue" "message" -> Expiration Time 300 seconds from now
-		
+```		
 ! it is important that the Broker and tStomp run on the same timezone or else the difference is calculated !
 		
 A ttl of 0 will result in an Expiration Time of 0, meaning it will not expire.
-	
+``` tcl
 	tStomp_instance send -headers [list ttl 0] "/queue/exampleQueue" "message" -> Expiration Time 0, the message will not expire
 	tStomp_instance send -headers [list expires 0] "/queue/exampleQueue" "message" -> Expiration Time 0, the message will not expire
 	tStomp_instance send -ttl 0 "/queue/exampleQueue" "message" -> Expiration Time 0, the message will not expire
-	
+```	
 Subscribing to a queue will enable to receive messages which are sent to that queue. Every time a message is received the callBackScript is called.
-	
+``` tcl	
 	tStomp_instance subscribe "/queue/subscribeQueue" {puts "message received"}
-		
-Received messages are handled by the handleInput method, which reads line after line. At the end of file the connection is closed until another message comes up.
-	
-Every line is given to the handleLine method.
-A message consists of three parts: star, header, messagebody.
-Start is the type of the message: 
-	
-	CONNECTED: to confirm if a connection is established
-	MESSAGE: a message with a either a text or an application
-	ERROR: an error to be thrown
-
-The messagebody is handled different depending on the type.
-	
-	CONNECTED: callBackScript is called
-	ERROR: the error is thrown
-	MESSAGE: on_receive method called
-	
-The on_receive method executes the callBackScripts given by the subscribers with the arguments sent with the message.
+```		
+After a broker failover, all subscribe commands will be re-executed. 	
 	
 The unsubscribe method unsubscribes from the given queue and erases the correlating callBackScript.
-	
+``` tcl	
 	tStomp_instance unsubscribe "/queue/exampleQueue"
-	
+```	
 To disconnect the disconnect method may be called. It is possible to force the disconnect with the parameter force. If force is set the notConnected error is ignored.
-	
+``` tcl	
 	tStomp_instance disconnect -> force = 0
 	tStomp_instance disconnect 1 -> force = 1
-		
-## First Heart Beat Implementation
+```		
+## Heart Beat Implementation
 A first step towards Stomp 1.2 compatibility is the implementation of heart beat messages. With tStomp is possible to ask the server for sending heart beats. About all heartBeatExpected ms the script heartBeatScript will be called. If the connection get's lost, a reconnection is triggered. 
-
+``` tcl
 	tStomp_instance connect {puts "CONNECTED"} -heartBeatScript {puts "heart beat isConnected=$isConnected host=$host port=$port"}  -heartBeatExpected 1000
-
+```
 
 ## Error Handling
 tStomp has 4 errors implemented:
@@ -162,40 +129,45 @@ tStomp has 4 errors implemented:
 ```
 	class tStomp
 		constructor {stompUrl}
-			Class called with the ipaddress and port and values are initialised in the constructor. stompUrl should have the format: stomp://username:password@host:port
+			Standard Stomp URL format is possible - e.g.:
+			stomp://username:password@host:port
+			failover:(stomp:tcp://username:password@activemqhost1:61613,stomp:tcp://username:password@activemqhost2:61613)
 		destructor {}
 			Called when objects of the class are deleted
-		public connect {onConnectScript}
-			connects to given host and port. onConnectScript is called after connection is confirmed. Optional the parameter -heartBeatScript and -heartBeatExpected are possible for heart beat callbacks. The local variables isConnected, host and port indicate the current connection state. 
+		public connect {onConnectScript args}
+			connects to given stompUrl in the constructor. 
+			onConnectScript is called after connection is confirmed. 
+			Optional parameters 
+				-heartBeatScript <script> 	# script to be called after receifing heartBeat. The local variables isConnected, host and port indicate the current connection state.
+				-heartBeatExpected <heartBeatExpected> # heart beat expected every <heartBeatExpected> ms.  
+				-reconnect <reconnection>	# reconnection 0|1 - use previous parameters. Default 0.
+				-supervisionTime <supervisionTime>  # after a connection, no reconnect is allowed within <supervisionTime> (in sec)
+
 		public disconnect {force 0}
 			disconnects from server
-		public handleInput {}
-			Called from fileevent - reads one line. if eof it closes the connection and reconnects afterwards. 
-		public send {args}
-			The SEND command sends a message to a destination in the messaging system.
-			It has one required header, destination, which indicates where to send the message.
-			The body of the SEND command is the message to be sent.			
-			given options may be correaltionId, replyTo, persistent (false by default), ttl, headers. all other options must be given in headers
+		public send {dest msg args}
+			publishes a message msg to destination dest. 
+			Optional parameters 
+				-correlationId <correlationId>
+				-replyTo <queue>
+				-persistent <persistent>
+				-ttl <ttl>
+				-headers <headerList>
 			if an option and a header exists, the header will be overwritten by the option
 		public subscribe {destName callbackscript}
 			Command is used to register to listen to a given destination. On every received message callbackscript will be called
-		public testConnectionFailure
-			Method to simulate a connection failure (internal)
-		public testhandleLine
-			Method to test the handleLine method (internal)
-		public handleHeartBeatFail
-			internal method called by timeout script if there is no heartbeat within min(3*heartBeatExpected,10000) ms.
-			This method executes heartBeatScript and tries a reconnect. 
 		public unsubscribe {destName}
 			unsubscribes the given destination. correlating callbackscript will be removed
-		public getDestinationId {destination}
-			returns the id of the given destination
 		public getStompVersion {}
 			returns the current stomp version
 		public getIsConnected {}
 			returns if the tStomp is connected
 		public setWriteSocketFile {status}
 			set to enable logging. tStomp log is written in tStomp.log . if nothing is set logging is disabled
+		proc setDebugCmd {script} 
+			injects a custom debug output command - e.g.
+			tStomp::setDebugCmd {::debug $msg $level}
+			tStomp::setDebugCmd {trace $msg}
 ```
 Integration Tests are found in tStomp.test.tcl .
 		
