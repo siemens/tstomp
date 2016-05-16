@@ -6,6 +6,7 @@ This is a Stomp Implementation for Tcl coded in pure Tcl.
 Stomp stands for "Streaming Text Orientated Messaging Protocol". This implementation is based on Stomp 1.2 specification, which can be found at http://stomp.github.com/stomp-specification-1.2.html. For futher information about Tcl, visit their homepage at http://www.tcl.tk.
 
 Primary site: https://github.com/siemens/tstomp
+
 Source code: https://github.com/siemens/tstomp.git
 
 ## How to run tStomp
@@ -51,17 +52,14 @@ or more advanced connction string for failover:
 
 	failover:(stomp:tcp://username:password@activemqhost1:61613,stomp:tcp://username:password@activemqhost2:61613)
 		
-When creating an object of tStomp the stompUrl is given as a parameter. tStomp splits the stompUrl and saves host, port, username and password in local variables.
+Create a tStomp object and connect to a broker:
 ``` tcl		
 	tStomp tStomp_instance $stompUrl
-```		
-The connect method uses the information in the variables to establish the connection. A callBackScript is given which is called as soon as the connection is established.
-``` tcl	
 	tStomp_instance connect {puts "connection established to $host $port"} 
 ```			
 After connection is established tStomp is able to publish messages and subscribe to queues.
 ``` tcl	
-	tStomp_instance send "/queue/exampleQueue" "best whishes !"
+	tStomp_instance send "/queue/exampleQueue" "best whishes!"
 ```	
 The send command has some optional arguments:
 ``` tcl
@@ -69,33 +67,31 @@ The send command has some optional arguments:
 	-correlationId <id>
 	-replyTo <queueName>
 	-persistent true|false
-	-headers <name-value-list>  // The parameters ttl, correlationId, replyTo and persistent will overwrite the corresponding headers.	
+	-headers <name-value-list>  # The parameters ttl, correlationId, replyTo and persistent will overwrite the corresponding headers.	
 ```		
 e.g.:
 ``` tcl
-	tStomp_instance send -ttl 300000 -replyTo "/queue/replyToQueue" -headers [list correlationId 1 content-type String] "/queue/exampleQueue" "best whishes !"
+	tStomp_instance send -ttl 300000 -replyTo "/queue/replyToQueue" -headers [list correlationId 1 content-type String] "/queue/exampleQueue" "best whishes!"
 ```	
 If a option is set the header will be ignored.
 ``` tcl	
 	tStomp_instance send -replyTo "/queue/replyToQueue" -headers [list reply-to "/queue/IgnoredQueue"] "/queue/exampleQueue" "message"
 ```	
 The option/header ttl is an exception. The ActiveMQ Broker does only have expires as the Expiration Time. It does not support ttl. If the header/option ttl is set a header expires will be generated.
-If the header expires is set, the header ttl will be ignored, the option ttl will overwrite it though.
+If the header expires is set, the header ttl will be ignored, the option ttl will overwrite it though. A ttl of 0 will result in an Expiration Time of 0, meaning it will not expire.
 ``` tcl			
 	tStomp_instance send -ttl 300000 "/queue/exampleQueue" "message" -> Expiration Time 300 seconds from now
 	tStomp_instance send -headers [list expires 300000] "/queue/exampleQueue" "message" -> Expiration Time 300 seconds from now
 	tStomp_instance send -ttl 300000 -headers [list ttl 150000] "/queue/exampleQueue" "message" -> Expiration Time 300 seconds from now
 	tStomp_instance send -headers [list ttl 150000 expires 300000] "/queue/exampleQueue" "message" -> Expiration Time 300 seconds from now
 	tStomp_instance send -ttl 300000 -headers [list expires 150000] "/queue/exampleQueue" "message" -> Expiration Time 300 seconds from now
-```		
-! it is important that the Broker and tStomp run on the same timezone or else the difference is calculated !
-		
-A ttl of 0 will result in an Expiration Time of 0, meaning it will not expire.
-``` tcl
+
 	tStomp_instance send -headers [list ttl 0] "/queue/exampleQueue" "message" -> Expiration Time 0, the message will not expire
 	tStomp_instance send -headers [list expires 0] "/queue/exampleQueue" "message" -> Expiration Time 0, the message will not expire
 	tStomp_instance send -ttl 0 "/queue/exampleQueue" "message" -> Expiration Time 0, the message will not expire
-```	
+```		
+** it is important that the Broker and tStomp run on the same timezone or else the difference is calculated **
+		
 Subscribing to a queue will enable to receive messages which are sent to that queue. Every time a message is received the callBackScript is called.
 ``` tcl	
 	tStomp_instance subscribe "/queue/subscribeQueue" {puts "message received"}
@@ -111,8 +107,9 @@ To disconnect the disconnect method may be called. It is possible to force the d
 	tStomp_instance disconnect -> force = 0
 	tStomp_instance disconnect 1 -> force = 1
 ```		
+
 ## Heart Beat Implementation
-A first step towards Stomp 1.2 compatibility is the implementation of heart beat messages. With tStomp is possible to ask the server for sending heart beats. About all heartBeatExpected ms the script heartBeatScript will be called. If the connection get's lost, a reconnection is triggered. 
+A first step towards Stomp 1.2 compatibility is the implementation of heart beat messages. With tStomp it is possible to ask the server for sending periodic heart beats. About all heartBeatExpected (in ms) the script heartBeatScript will be called. If the connection get's lost, a reconnection is triggered. 
 ``` tcl
 	tStomp_instance connect {puts "CONNECTED"} -heartBeatScript {puts "heart beat isConnected=$isConnected host=$host port=$port"}  -heartBeatExpected 1000
 ```
@@ -128,12 +125,15 @@ tStomp has 4 errors implemented:
 ## API
 ```
 	class tStomp
+
 		constructor {stompUrl}
 			Standard Stomp URL format is possible - e.g.:
 			stomp://username:password@host:port
 			failover:(stomp:tcp://username:password@activemqhost1:61613,stomp:tcp://username:password@activemqhost2:61613)
+	
 		destructor {}
 			Called when objects of the class are deleted
+	
 		public connect {onConnectScript args}
 			connects to given stompUrl in the constructor. 
 			onConnectScript is called after connection is confirmed. 
@@ -145,6 +145,7 @@ tStomp has 4 errors implemented:
 
 		public disconnect {force 0}
 			disconnects from server
+	
 		public send {dest msg args}
 			publishes a message msg to destination dest. 
 			Optional parameters 
@@ -154,16 +155,22 @@ tStomp has 4 errors implemented:
 				-ttl <ttl>
 				-headers <headerList>
 			if an option and a header exists, the header will be overwritten by the option
+	
 		public subscribe {destName callbackscript}
 			Command is used to register to listen to a given destination. On every received message callbackscript will be called
+	
 		public unsubscribe {destName}
 			unsubscribes the given destination. correlating callbackscript will be removed
+	
 		public getStompVersion {}
 			returns the current stomp version
+	
 		public getIsConnected {}
 			returns if the tStomp is connected
+	
 		public setWriteSocketFile {status}
 			set to enable logging. tStomp log is written in tStomp.log . if nothing is set logging is disabled
+	
 		proc setDebugCmd {script} 
 			injects a custom debug output command - e.g.
 			tStomp::setDebugCmd {::debug $msg $level}
