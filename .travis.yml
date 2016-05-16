@@ -2,13 +2,25 @@ sudo: required
 services:
   - docker
 
-script:
-  - docker run -d -e TZ=CEST -p 61613:61613 -p 8161:8161 rmohr/activemq:latest
-  - docker ps -a
-  - echo $DOCKER_HOST
-  - curl --retry 10 --retry-delay 5 -v -s -L -o /dev/null -u admin:admin http://localhost:8161/admin/
-  - docker run -it -v ./:/opt/tcl/lib/tstomp -e stompServerURL=stomp://system:manager@localhost:61613 --rm efrecon/mini-tcl /opt/tcl/lib/tstomp/tStomp.test.tcl
+env:
+  DOCKER_COMPOSE_VERSION: 1.5.2
 
+before_install:
+  - sudo rm /usr/local/bin/docker-compose
+  - curl -L https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-`uname -s`-`uname -m` > docker-compose
+  - chmod +x docker-compose
+  - sudo mv docker-compose /usr/local/bin
+
+script:
+  - docker-compose build
+  - docker-compose up -d
+  - docker-compose ps
+  # wait until ActiveMQ is available
+  - docker-compose run activemq-service curl --retry 10 --retry-delay 5 -v -s -L -o /dev/null http://admin:admin@activemq:8161/admin/
+  # simple connection test from tclsh-service to activemq-service
+  - docker-compose run --entrypoint /bin/sh tclsh-service -c "wget -O /dev/null http://admin:admin@activemq-service:8161/admin/"
+  # run the test cases
+  - docker-compose run --entrypoint tclsh8.6 -e stompServerURL=stomp://system:manager@activemq-service:61613 tclsh-service /opt/tcl/lib/tstomp/tStomp.test.tcl
 notifications:
   email:
     - derk@muenchhausen.de

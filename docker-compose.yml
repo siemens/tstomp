@@ -1,0 +1,21 @@
+activemq-service:
+  image: rmohr/activemq:latest
+  environment:
+    - TZ=CEST
+  ports:
+    - "61613:61613"
+    - "8161:8161"
+  expose:
+    - 61613
+    - 8161
+
+tclsh-service:
+  image: efrecon/mini-tcl
+  environment:
+    - TZ=CEST
+  entrypoint: /bin/sh
+  command: -c "echo 'puts stderr helloworld' | tclsh8.6"
+  links:
+    - activemq-service
+  volumes:
+    - .:/opt/tcl/lib/tstomp
