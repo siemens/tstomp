@@ -1,0 +1,20 @@
+#activemq-service:
+#  image: rmohr/activemq:latest
+#  environment:
+#    - TZ=CEST
+#  ports:
+#    - "61613:61613"
+#    - "8161:8161"
+#  expose:
+#    - 61613
+#    - 8161
+
+tclsh-service:
+  image: efrecon/mini-tcl
+  environment:
+    - TZ=CEST
+  command: /opt/tcl/lib/tstomp/serviceExtension/ServiceSimulator.tcl "stomp://system:manager@192.168.10.151:61613" "/queue/resource.queue"
+#  links:
+#    - activemq-service
+  volumes:
+    - ..:/opt/tcl/lib/tstomp
