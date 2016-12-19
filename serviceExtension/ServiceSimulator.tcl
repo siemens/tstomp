@@ -15,7 +15,7 @@ catch {delete class ServiceSimulator}
 
 class SampleServiceClass {
     variable stompObj
-    variable ttl 600000
+    variable ttl 0
     variable destinationQueue
 
     constructor {_stompObj _destinationQueue} {} {
@@ -47,7 +47,15 @@ class ServiceSimulator {
 
     constructor {stompUrl destinationQueue} {} {
         set stompObj [tStomp ::$this-stomp $stompUrl]
-        $stompObj connect "$this connected"
+        # retry because the broker might be still starting
+        for {set retryCount 0} {$retryCount < 10} {incr retryCount} {
+            if {[catch {
+                $stompObj connect "$this connected"
+            } err]} {
+                puts "connect retry=$retryCount $err"
+                after 3000
+            }
+	}
         set sampleServiceClass [SampleServiceClass #auto $stompObj $destinationQueue]
     }
 
