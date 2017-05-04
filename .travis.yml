@@ -20,7 +20,7 @@ script:
   # simple connection test from tclsh-service to activemq-service
   - docker-compose run --entrypoint /bin/sh tclsh-service -c "wget -O /dev/null http://admin:admin@activemq-service:8161/admin/"
   # run the test cases
-  - docker-compose run --entrypoint tclsh8.6 -e stompServerURL=stomp://system:manager@activemq-service:61613 tclsh-service /opt/tcl/lib/tstomp/tStomp.test.tcl
+  - docker-compose run --entrypoint tclsh8.6 -e stompServerURL=stomp://system:manager@activemq-service:61613 tclsh-service /opt/tcl/lib/tstomp/tStompTestIntegration.tcl
 notifications:
   email:
     - derk@muenchhausen.de

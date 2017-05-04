@@ -13,7 +13,7 @@
 # -wrongArgs
 # -notSuscribedToGivenDestination
 
-package provide tStomp 0.9
+package provide tStomp 0.10
 
 package require Itcl
 package require struct::set
@@ -51,13 +51,10 @@ class tStomp {
 	variable brokerIndex 0
 
 	# Boolean value for checking Connection is established or not
-	variable isConnected
+	variable isConnected 0
 
 	# script called on the response of "CONNECT" Command
 	variable onConnectScript
-
-	# writing every content of socket in a Logfile
-	variable writeSocketFile 0
 
 	# status indicates actual reading position
 	variable readStatus
@@ -324,10 +321,6 @@ class tStomp {
 		# debug "handleInput called: $calledCounter" FINEST
 		gets $connection_to_server line
 
-		if {$writeSocketFile == 1} {
-			writeFile "$line"
-		}
-
 		handleLine $line
 	}
 
@@ -341,7 +334,7 @@ class tStomp {
 	}
 
 	private method recreateAfterScriptForHeartBeatFail {} {
-		set timeInMs [expr $heartBeatExpected*3<$minHeartBeatTime?$minHeartBeatTime:$heartBeatExpected*3]
+		set timeInMs [expr $heartBeatExpected*5<$minHeartBeatTime?$minHeartBeatTime:$heartBeatExpected*5]
 		# debug "recreateAfterScriptForHeartBeatFail called $timeInMs" INFO
 		after cancel $heartBeatAfterId
 		set heartBeatAfterId [after $timeInMs "$this handleHeartBeatTimeout"] 
@@ -363,6 +356,7 @@ class tStomp {
 	#		calls methods depending on command (e.g. onConnectScript if CONNECTED, on_receive if MESSAGE)
 	private method handleLine {line} {
 		# debug $readStatus FINEST
+		# debug "readline '$line'" FINEST
 		set endOfMessage 0
 		if {[regsub -all -- {\x00} $line "" line]} {
 			set endOfMessage 1
@@ -387,9 +381,7 @@ class tStomp {
 					# because of activemq header encoding we need to turn "\c" (0x63) into ":"
 					set line [string map {"\\\x63" :} $line]
 
-					set splitHeader [regsub -- ":" $line " "]
-					set varName [lindex $splitHeader 0]
-					set value [lindex $splitHeader 1]
+                    regexp {^(.*?):(.*)$} $line all varName value
 
 					set params($varName) $value
 				} else {
@@ -493,7 +485,7 @@ class tStomp {
 	
 	# executes a script, e.g. a script defined for a destination or the callback script. The local variable $messageNvList $isConnected $host $port are available within the script.
 	private method execute {destination script messageNvList isConnected host port} {
-		debug "execute destination=$destination script='$script' messageNvList='$messageNvList' isConnected=$isConnected host=$host port=$port" FINE
+		debug "execute destination=$destination script='$script' messageNvList='$messageNvList' isConnected=$isConnected host=$host port=$port" FINEST
 		#  if a global execute_thread command is available, use it
 		if [llength [info command execute_thread]] {
 			execute_thread $script $messageNvList $isConnected $host $port
@@ -534,7 +526,7 @@ class tStomp {
 	# It has one required header, destination, which indicates where to send the message.
 	# The body of the SEND command is the message to be sent.
 	#
-	# send -replyTo /queue/FooBar -headers {foo 1 bar 2} /queue/Hello.World
+	# send -replyTo /queue/FooBar -headers {foo 1 bar 2} /queue/Hello.World {this is a payload}
 	# @param dest destination name e.g. /queue/test
 	# @param msg message body
 	public method send {args} {
@@ -770,17 +762,6 @@ class tStomp {
 	
 	public method getIsConnected {} {
 		return $isConnected
-	}
-
-	public method setWriteSocketFile {status} {
-		set writeSocketFile $status
-	}
-
-	# Writes the hole socket input into a local file
-	proc writeFile {text} {
-		set fid [open tStomp.log a+]
-		puts $fid $text
-		close $fid
 	}
 
 	# Overwrites the debug command. e.g. own log file for stomp functionality

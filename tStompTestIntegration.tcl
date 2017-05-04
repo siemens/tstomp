@@ -4,11 +4,8 @@ package require tcltest
 
 namespace import -force ::tcltest::*
 
-# namespace import overrides debug command
-# so we have to reoverride the command
-proc debug {args} {
-	puts "[lindex $args 0]"
-}
+
+
 
 # add current to directory for requiring tStomp
 lappend auto_path ./
@@ -16,19 +13,28 @@ lappend auto_path ./
 # Software under test
 package require tStomp
 
+tStomp::setDebugCmd {puts "$msg $level"}
+
+
 # Setting ServerURL
-set ::serverURL stomp://system:manager@localhost:61613
-# overwrite by env Variable
-if {$::env(stompServerURL)!=""} {
+if {[info exists ::test_config(STOMP_SERVER_URL)]} {
+	set ::serverURL $::test_config(STOMP_SERVER_URL)
+} elseif {[info exists ::env(stompServerURL)] && $::env(stompServerURL) != ""} {
 	set ::serverURL $::env(stompServerURL)
+} else {
+	set ::serverURL stomp://system:manager@localhost:61613
 }
+
 set ::failoverServerURL "failover:(stomp:tcp://invalid:invalid@localhost:99999,$::serverURL)"
 
 
 set ::runs 0
 
 proc getNewQueue {} {
-	set queue "/queue/tstomp.test."
+	set brokerInfo [split [split $::serverURL ":"] "@"]
+	set host [lindex $brokerInfo 1 0]
+
+	set queue "/queue/tstomp.test.$host."
 	append queue [string trim [clock clicks] -]
 	return $queue
 }
@@ -39,21 +45,21 @@ proc getTopic {} {
 }
 
 proc stompcallback {messageNvList} {
-	puts "------------------------------"
+	tStomp::debug "------------------------------" FINER
 	array set temp $messageNvList
 	foreach name [array names temp] {
 		set ::$name $temp(${name})
 
-		puts "#-#-# $name $temp(${name})"
+		tStomp::debug "#-#-# $name $temp(${name})" FINER
 	}
-	puts "------------------------------"
+	tStomp::debug "------------------------------" FINER
 }
 
 # to skip tests - add them here:
 #tcltest::configure -skip [list Stomp_handleLine Stomp_connect Stomp_disconnect Stomp_Send Stomp_Double_Header Stomp_subscribe Stomp_unsubscribe Stomp_durably_subscribe Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_successful_connection Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost]
 
 test Stomp_connect {} -body {
-	puts "## Stomp_connect"
+	tStomp::debug "## Stomp_connect" FINER
 
 
 	# Connect
@@ -69,12 +75,12 @@ test Stomp_connect {} -body {
 	}
 
 	unset -nocomplain -- ::result
-	set afterId [after 5000 {set ::result "NOT CONNECTED"; puts "Excute after!"}]
+	set afterId [after 5000 {set ::result "NOT CONNECTED"; tStomp::debug "Excute after!" FINER}]
 	vwait ::result
 	catch {after cancel $afterId}
 
 	if {$::result == "NOT CONNECTED"} {
-		puts "### NOT CONNECTED $::result"
+		tStomp::debug "### NOT CONNECTED $::result" FINER
 		error "In testcase 'Stomp_connect' Connection failed"
 	}
 
@@ -101,15 +107,14 @@ test Stomp_connect {} -body {
 	catch {after cancel $afterId}
 
 	if {$::result2 == "NOT CONNECTED"} {
-		puts "### NOT CONNECTED $::result"
+		tStomp::debug "### NOT CONNECTED $::result" FINER
 		error "In testcase 'Stomp_connect' Connection two failed"
 	}
-
 	return 1	
 } -result "1"
 
 test Stomp_disconnect {} -body {
-	puts "## Stomp_disconnect"
+	tStomp::debug "## Stomp_disconnect" FINER
 	catch {delete object ::s}
 	catch {rename ::s ""}
 	tStomp ::s $::serverURL
@@ -127,8 +132,9 @@ test Stomp_disconnect {} -body {
 } -result "1"
 
 test Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_successful_connection {} -body {
-	puts "##  Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_successful_connection "
-
+	# simpleDebug::setDebugLevel FINEST
+	tStomp::debug "##  Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_successful_connection " FINER
+	
 
 	# GIVEN:
 	catch {delete object ::s}
@@ -136,25 +142,60 @@ test Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_successful_conne
 	tStomp ::s $::serverURL
 
 	# WHEN connecting with heartBeat callback script:
-	::s connect {puts "successfully connected"} -heartBeatScript {set ::result "HEARTBEAT"}  -heartBeatExpected 1000
+	::s connect {tStomp::debug "successfully connected" FINER} -heartBeatScript {set ::result "HEARTBEAT"}  -heartBeatExpected 1234
 
 
 	# THEN we expect that it is called within 5sec:
 	unset -nocomplain -- ::result
-	set afterId [after 10000 {set ::result "NO HEARTBEAT"; puts "Excute after!"}]
+	set afterId [after 6000 {set ::result "NO HEARTBEAT"; tStomp::debug "Excute after!" FINER}]
 	vwait ::result
 	catch {after cancel $afterId}
 
 	if {$::result == "NO HEARTBEAT"} {
-		puts "### NO HEARTBEAT $::result"
+		tStomp::debug "### NO HEARTBEAT $::result" FINER
 		error "In testcase 'Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_successful_connection' no heartbeat"
 	}
-
+	# simpleDebug::setDebugLevel NONE
 	return 1
 } -result 1
 
+test Stomp_heartBeat_should_call_multiple_times_heartBeatScript {} -body {
+	#simpleDebug::setDebugLevel FINEST
+	tStomp::debug "##  Stomp_heartBeat_should_call_multiple_times_heartBeatScript " FINER
+	set returnValue 1
+
+	# GIVEN:
+	catch {delete object ::s}
+	catch {rename ::s ""}
+	tStomp ::s $::serverURL
+	set ::result [list]
+
+	# WHEN connecting with heartBeat callback script:
+	::s connect {tStomp::debug "successfully connected" FINER} -heartBeatScript {lappend ::result [clock milliseconds]}  -heartBeatExpected 100
+
+	# THEN 
+	after 2000 {set ::heartbeatWait 1}
+	vwait ::heartbeatWait	
+
+	tStomp::debug "result = $::result"
+	set previous [lindex $::result 0]
+	foreach duration $::result {
+		set realDuration [expr $duration-$previous]
+		tStomp::debug "duration $realDuration"
+		if {$realDuration > 300} {
+			set returnValue 0
+			break
+		}
+		set previous $duration
+	}
+
+	#simpleDebug::setDebugLevel NONE
+	return $returnValue
+} -result 1
+
+
 test Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost {} -body {
-	puts "## Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost"
+	tStomp::debug "## Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost" FINER
 
 
 	# GIVEN:
@@ -163,15 +204,15 @@ test Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost 
 	tStomp ::s $::serverURL
 	
 	# do the connect with a quick supervision 
-	::s connect {set ::result "CONNECTED"} -supervisionTime 5 -heartBeatScript {puts "heart beat";if {!$isConnected} {set ::result2 "DISCONNECTION NOTICED"} else {set ::result3 "CONNECTION NOTICED"}}  -heartBeatExpected 1000
+	::s connect {set ::result "CONNECTED"} -supervisionTime 5 -heartBeatScript {tStomp::debug "heart beat" FINER;if {!$isConnected} {set ::result2 "DISCONNECTION NOTICED"} else {set ::result3 "CONNECTION NOTICED"}}  -heartBeatExpected 1000
 
 	unset -nocomplain -- ::result
-	set afterId [after 5000 {set ::result "NOT CONNECTED"; puts "Excute after!"}]
+	set afterId [after 2000 {set ::result "NOT CONNECTED"; tStomp::debug "Excute after!" FINER}]
 	vwait ::result
 	catch {after cancel $afterId}
 
 	if {$::result == "NOT CONNECTED"} {
-		puts "### NOT CONNECTED $::result"
+		tStomp::debug "### NOT CONNECTED $::result" FINER
 		error "In testcase 'Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost' Connection failed"
 	}
 
@@ -184,18 +225,18 @@ test Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost 
 	unset -nocomplain -- ::result2
 	
 	# WHEN simulating a failure:
-	puts "running testConnectionFailure"
+	tStomp::debug "running testConnectionFailure" FINER
 	::s testConnectionFailure
 
 
 	# THEN connection failure has to be noticed:
-	puts "wait up to 15s for heart beat timeout..."
+	tStomp::debug "wait up to 15s for heart beat timeout..." FINER
 	set afterId [after 15000 {set ::result2 "NO DISCONNECTION NOTICED"}]
 	vwait ::result2
 	catch {after cancel $afterId}
 
 	if {$::result2 == "NO DISCONNECTION NOTICED"} {
-		puts "### $::result2"
+		tStomp::debug "### $::result2" FINER
 		error "In testcase 'Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost' heartbeat did not notice connection failure"
 	}
 
@@ -203,13 +244,13 @@ test Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost 
 	# THEN we expect a reconnection heart beat later:
 	unset -nocomplain -- ::result3
 
-	puts "wait up to 15s for heart beat with connection..."
-	set afterId [after 15000 {set ::result3 "NO CONNECTION NOTICED"}]
+	tStomp::debug "wait up to 15s for heart beat with connection..." FINER
+	set afterId [after 5000 {set ::result3 "NO CONNECTION NOTICED"}]
 	vwait ::result3
 	catch {after cancel $afterId}
 
 	if {$::result3 == "NO CONNECTION NOTICED"} {
-		puts "### $::result3"
+		tStomp::debug "### $::result3" FINER
 		error "In testcase 'Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost' heartbeat did not notice reconnection"
 	}
 
@@ -217,7 +258,7 @@ test Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost 
 } -result "1"
 
 test Stomp_connect_should_failover_from_invalid_to_next_valid_broker {} -body {
-	puts "## Stomp_connect_should_failover_to_next_broker"
+	tStomp::debug "## Stomp_connect_should_failover_to_next_broker" FINER
 
 	# GIVEN:
 	catch {delete object ::s}
@@ -228,13 +269,13 @@ test Stomp_connect_should_failover_from_invalid_to_next_valid_broker {} -body {
 	::s connect {set ::result "CONNECTED"} 
 
 	unset -nocomplain -- ::result
-	set afterId [after 5000 {set ::result "NOT CONNECTED"; puts "Excute after!"}]
+	set afterId [after 5000 {set ::result "NOT CONNECTED"; tStomp::debug "Excute after!" FINER}]
 	vwait ::result
 	catch {after cancel $afterId}
 
 	# THEN:
 	if {$::result == "NOT CONNECTED"} {
-		puts "### NOT CONNECTED $::result"
+		tStomp::debug "### NOT CONNECTED $::result" FINER
 		error "In testcase 'Stomp_connect_should_failover_to_next_broker' Connection failed"
 	}
 
@@ -246,7 +287,7 @@ test Stomp_connect_should_failover_from_invalid_to_next_valid_broker {} -body {
 } -result "1"
 
 test Stomp_connect_should_fail_if_all_brokers_are_invalid {} -body {
-	puts "## Stomp_connect_should_fail_if_all_brokers_are_invalid"
+	tStomp::debug "## Stomp_connect_should_fail_if_all_brokers_are_invalid" FINER
 
 	# GIVEN:
 	catch {delete object ::s}
@@ -266,7 +307,7 @@ test Stomp_connect_should_fail_if_all_brokers_are_invalid {} -body {
 } -result "1"
 
 test Stomp_Send {} -body {
-	puts "## Stomp_Send"
+	tStomp::debug "## Stomp_Send" FINER
 	set queue [getNewQueue]
 	# Connect
 	catch {delete object ::s}
@@ -291,7 +332,7 @@ test Stomp_Send {} -body {
 } -result "1"
 
 test Stomp_Double_Header {} -body {
-	puts "## Stomp_Double_Header_diffValue"
+	tStomp::debug "## Stomp_Double_Header_diffValue" FINER
 	set queue [getNewQueue]
 	# Connect
 	catch {delete object ::s}
@@ -316,7 +357,7 @@ test Stomp_Double_Header {} -body {
 }	-result "1"
 
 test Stomp_Double_Header {} -body {
-	puts "## Stomp_Double_Header_sameValue"
+	tStomp::debug "## Stomp_Double_Header_sameValue" FINER
 	set queue [getNewQueue]
 	# Connect
 	catch {delete object ::s}
@@ -342,7 +383,7 @@ test Stomp_Double_Header {} -body {
 }	-result "1"
 
 test Stomp_subscribe {} -body {
-	puts "## Stomp_subscribe"
+	tStomp::debug "## Stomp_subscribe" FINER
 	set queue_subscribe [getNewQueue]
 	# Connect
 	catch {delete object ::s}
@@ -390,11 +431,11 @@ test Stomp_subscribe {} -body {
 
 	# send
 	unset ::messagebody
-	::s send $queue_subscribe "Stomp_2sübscribe"
+	::s send $queue_subscribe "Stomp_2sï¿½bscribe"
 	after 5000 [list set ::messagebody ERROR]
 	vwait ::messagebody
 
-	if {[string match "Stomp_2sübscribe*" $::messagebody] != 1} {
+	if {[string match "Stomp_2sï¿½bscribe*" $::messagebody] != 1} {
 		error "In testcase 'Stomp_subscribe' getting a message failed (connect after subscribe)"
 	}
 
@@ -403,7 +444,7 @@ test Stomp_subscribe {} -body {
 } -result "1"
 
 test Stomp_durably_subscribe {} -body {
-	puts "## Stomp_durably_subscribe"
+	tStomp::debug "## Stomp_durably_subscribe" FINER
 	set topic_subscribe [getTopic]
 	# Connect
 	catch {delete object ::s}
@@ -446,7 +487,7 @@ test Stomp_durably_subscribe {} -body {
 } -result "1"
 
 test Stomp_unsubscribe {} -body {
-	puts "## Stomp_unsubscribe"
+	tStomp::debug "## Stomp_unsubscribe" FINER
 	set queue_unsubscribe [getNewQueue]
 	catch {delete object ::s}
 	catch {rename ::s ""}
@@ -495,7 +536,7 @@ test Stomp_unsubscribe {} -body {
 
 test Stomp_handleLine {} -body {
 
-	puts "## Stomp_handleLine"
+	tStomp::debug "## Stomp_handleLine" FINER
 	set queue_handleLine [getNewQueue]
 	catch {delete object ::s}
 	catch {rename ::s ""}
@@ -510,6 +551,7 @@ test Stomp_handleLine {} -body {
 	::s subscribe $queue_handleLine {}
 
 # list of line (from socket) and expected result
+unset -nocomplain message
 set message [list \
 [list [list CONNECTED]								[list CONNECTED] {}] \
 [list [list heart-beat:0,0]							[list CONNECTED] [list heart-beat 0,0]] \
@@ -544,7 +586,7 @@ set message [list \
 
 	foreach test $message {
 		set res [::s testHandleLine [lindex $test 0]]
-		puts "============== $res"
+		tStomp::debug "============== $res" FINER
 
 		array set resArr [lindex $res 0]
 
@@ -599,8 +641,5 @@ test Stomp_parseStompUrl_Should_parse_failover_without_tcp_in_connect_string_cor
 } -result "1 {{localhost 61613 system xxx} {centralHost 61613 system xxx}}"
 
 
-array set testResult [array get ::tcltest::numTests]
-
 cleanupTests
-
-exit $testResult(Failed)
+return

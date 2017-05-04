@@ -1,7 +1,7 @@
 # tStomp [![Build Status](https://travis-ci.org/siemens/tstomp.svg?branch=master)](https://travis-ci.org/siemens/tstomp)
 This is a Stomp Implementation for Tcl coded in pure Tcl.
 
-**Current Version 0.9**
+**Current Version 0.10**
 
 Stomp stands for "Streaming Text Orientated Messaging Protocol". This implementation is based on Stomp 1.2 specification, which can be found at [stomp.github.com](http://stomp.github.com/stomp-specification-1.2.html). For futher information about Tcl, visit their homepage at [Tcl Developer Xchange](http://www.tcl.tk).
 
@@ -25,7 +25,7 @@ Source code: https://github.com/siemens/tstomp.git
 set the environment variable stompServerURL to your Broker, start tcl console and run
     
 ``` tcl
-source tStomp.test.tcl
+source tStompTestIntegration.tcl
 ```
 * or run it in under e.g. under Windows in CMD Box 
 	
@@ -33,7 +33,7 @@ source tStomp.test.tcl
 set stompServerURL=stomp://system:manager@yourBrokerHost:61613
 set TCLLIBPATH="C:/yourLibPath/noarch"
 cd c:\yourTclInstallation
-.\tclsh.exe noarch\tstomp\tStomp.test.tcl
+.\tclsh.exe noarch\tstomp\tStompTestIntegration.tcl
 ``` 
 
 * Running load tests:
@@ -175,7 +175,7 @@ class tStomp
 		tStomp::setDebugCmd {::debug $msg $level}
 		tStomp::setDebugCmd {trace $msg}
 ```
-Integration Tests can be found in [tStomp.test.tcl](https://github.com/siemens/tstomp/blob/master/tStomp.test.tcl).
+Integration Tests can be found in [tStompTestIntegration.tcl](https://github.com/siemens/tstomp/blob/master/tStompTestIntegration.tcl).
 		
 
 # History
