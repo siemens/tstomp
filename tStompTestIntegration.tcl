@@ -162,7 +162,6 @@ test Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_successful_conne
 test Stomp_heartBeat_should_call_multiple_times_heartBeatScript {} -body {
 	#simpleDebug::setDebugLevel FINEST
 	tStomp::debug "##  Stomp_heartBeat_should_call_multiple_times_heartBeatScript " FINER
-	set returnValue 1
 
 	# GIVEN:
 	catch {delete object ::s}
@@ -177,21 +176,53 @@ test Stomp_heartBeat_should_call_multiple_times_heartBeatScript {} -body {
 	after 2000 {set ::heartbeatWait 1}
 	vwait ::heartbeatWait	
 
+	if {[llength $::result]==0} {
+		return 0
+	}
+
 	tStomp::debug "result = $::result"
 	set previous [lindex $::result 0]
 	foreach duration $::result {
 		set realDuration [expr $duration-$previous]
 		tStomp::debug "duration $realDuration"
 		if {$realDuration > 300} {
-			set returnValue 0
-			break
+			return 0
 		}
 		set previous $duration
 	}
 
 	#simpleDebug::setDebugLevel NONE
-	return $returnValue
+	return 1
 } -result 1
+
+test Stomp_heartBeat_should_call_heartBeatScript_once_within_heartBeatExpected_timeframe {} -body {
+	#simpleDebug::setDebugLevel FINEST
+	tStomp::debug "##  Stomp_heartBeat_should_call_once_heartBeatScript " FINER
+	set returnValue 1
+
+	# GIVEN:
+	catch {delete object ::s}
+	catch {rename ::s ""}
+	tStomp ::s $::serverURL
+	set ::result [list]
+	set ::connected_result 0
+
+	# WHEN connecting with heartBeat callback script:
+	::s connect {tStomp::debug "successfully connected" FINER; set ::connected_result 1} -heartBeatScript {lappend ::result [clock milliseconds]} -heartBeatExpected 100
+	# ... and simulating to expect it less often
+	::s setHeartBeatExpected 1000
+	# first wait for the connection
+	after 1000 {set ::connected_result 1}
+	vwait ::connected_result	
+
+	# THEN we expect one heartBeatScript call within heartBeatExpected plus one right after connection was established (here sum 3)
+	after 2500 {set ::heartbeatWait 1}
+	vwait ::heartbeatWait	
+	
+	#simpleDebug::setDebugLevel NONE
+	return [llength $result]
+
+} -result 3
 
 
 test Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost {} -body {

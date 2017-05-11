@@ -98,6 +98,8 @@ class tStomp {
 	# timestamp of last connection
 	variable supervisionTimeStamp 0
 
+	variable executionTimestampArray
+
 	# Class called with the ipaddress and port and values are initialised in the constructor
 	constructor {stompUrl} {} {
 		# failover information will be ignored. We assume always a failover.
@@ -260,7 +262,7 @@ class tStomp {
 
 		if {$heartBeatExpected} {
 			# call heart beat callback with isConnected=0
-			execute handleHeartBeat $heartBeatScript [list] $isConnected $host $port
+			executeLeastFrequently $heartBeatExpected handleHeartBeat $heartBeatScript [list] $isConnected $host $port
 		}
 
 		# switch of heartbeat until connection is reestublished
@@ -277,7 +279,7 @@ class tStomp {
 
 		if {$heartBeatExpected} {
 			# call heart beat callback probably with isConnected=1
-			execute handleHeartBeat $heartBeatScript [list] $isConnected $host $port
+			executeLeastFrequently $heartBeatExpected handleHeartBeat $heartBeatScript [list] $isConnected $host $port
 		}
 	}
 	
@@ -347,7 +349,7 @@ class tStomp {
 		if {$heartBeatExpected} {
 			recreateAfterScriptForHeartBeatFail
 			# positive heart beat - check it with isConnected
-			execute handleHeartBeat $heartBeatScript [list] $isConnected $host $port
+			executeLeastFrequently $heartBeatExpected handleHeartBeat $heartBeatScript [list] $isConnected $host $port
 		}
 	}
 
@@ -484,17 +486,34 @@ class tStomp {
 	}
 	
 	# executes a script, e.g. a script defined for a destination or the callback script. The local variable $messageNvList $isConnected $host $port are available within the script.
-	private method execute {destination script messageNvList isConnected host port} {
-		debug "execute destination=$destination script='$script' messageNvList='$messageNvList' isConnected=$isConnected host=$host port=$port" FINEST
+	private method execute {name script messageNvList isConnected host port} {
+		debug "execute name=$name script='$script' messageNvList='$messageNvList' isConnected=$isConnected host=$host port=$port" FINEST
 		#  if a global execute_thread command is available, use it
 		if [llength [info command execute_thread]] {
 			execute_thread $script $messageNvList $isConnected $host $port
 		} else {
-			if {![llength [info commands ::tStompCallbacks-${this}::$destination]]} {
-				proc ::tStompCallbacks-${this}::$destination {messageNvList isConnected host port} $script
+			if {![llength [info commands ::tStompCallbacks-${this}::$name]]} {
+				proc ::tStompCallbacks-${this}::$name {messageNvList isConnected host port} $script
 			}
-			::tStompCallbacks-${this}::$destination $messageNvList $isConnected $host $port
+			::tStompCallbacks-${this}::$name $messageNvList $isConnected $host $port
 		}
+	}
+
+	private method executeLeastFrequently {executionTimeFrame name script messageNvList isConnected host port} {
+		set now [clock clicks -milliseconds]
+		if {[info exists executionTimestampArray($name)]} {
+			set lastExecution [lindex $executionTimestampArray($name) 0]
+			set lastConnected [lindex $executionTimestampArray($name) 1]
+			# a heartbeat can only be ignored, if there is no isConnected change this the last call
+			if {$lastConnected == $isConnected} {
+				if {[expr $now-$lastExecution] < $executionTimeFrame} {
+					debug "$name ignored for the next [expr $executionTimeFrame-$now+$lastExecution]" FINEST
+					return
+				}
+			}
+		}
+		set executionTimestampArray($name) [list $now $isConnected]
+		execute $name $script $messageNvList $isConnected $host $port
 	}
 
 	public method testConnectionFailure {} {
@@ -762,6 +781,12 @@ class tStomp {
 	
 	public method getIsConnected {} {
 		return $isConnected
+	}
+
+	# this method changes the value for heartbeatexpected, but be aware that the new value will get active not before a reconnection
+	# main purpose for this method is testing
+	public method setHeartBeatExpected {newHeartBeatExpected} {
+		set heartBeatExpected $newHeartBeatExpected
 	}
 
 	# Overwrites the debug command. e.g. own log file for stomp functionality
