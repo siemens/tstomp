@@ -179,8 +179,10 @@ Integration Tests can be found in [tStompTestIntegration.tcl](https://github.com
 		
 
 # History
+*  Version 0.10 2017-05-04:
+     * prevent heartbeat flood
 *  Version 0.9 2016-02-04:
-	 * added supervision support: after a connection, no reconnect is allowed within supervisionTime period 
+     * added supervision support: after a connection, no reconnect is allowed within supervisionTime period 
 *  Version 0.8 2015-04-18:
      * added support for simple failover 
      * signature of execute_thread extended by parameters isConnected, host and port !
