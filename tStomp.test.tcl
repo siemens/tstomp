@@ -49,6 +49,77 @@ proc stompcallback {messageNvList} {
 	puts "------------------------------"
 }
 
+proc string2hex {string} {
+    set where 0
+    set res {}
+    while {$where<[string length $string]} {
+        set str [string range $string $where [expr $where+15]]
+        if {![binary scan $str H* t] || $t==""} break
+        regsub -all (....) $t {\1 } t4
+        regsub -all (..) $t {\1 } t2
+        set asc ""
+        foreach i $t2 {
+            scan $i %2x c
+            append asc [expr {$c>=32 && $c<=127? [format %c $c]: "."}]
+        }
+        lappend res [format "%7.7x: %-42s %s" $where $t4  $asc]
+        incr where 16
+    }
+    join $res \n
+} 
+
+test Stomp_send_and_receive_binary {} -body {
+	puts "## Stomp_subscribe"
+	set queue_subscribe [getNewQueue]
+	# Connect
+	catch {delete object ::s}
+	catch {rename ::s ""}
+	tStomp ::s $::serverURL
+	::s connect {set ::result CONNECTED}
+	after 5000 [list set ::result "NOT CONNECTED"]
+	vwait ::result
+
+	# subscribe
+	if {[::s subscribe $queue_subscribe {stompcallback $messageNvList}] != 1} {
+		error "In testcase 'Stomp_subscribe' Subscribe to queue failed"
+	}
+
+	set fp [open binary.jpg r]
+ 	fconfigure $fp -translation binary
+	#set inBinData [read $fp]
+	set inBinData "test\0test"
+	set contentLength [string length $inBinData]
+ 	close $fp 
+
+	puts "BINARY $contentLength"
+
+	after 1000 [list ::s send -headers [list content-length $contentLength] $queue_subscribe $inBinData]
+	set afterId [after 5000 [list set ::messagebody __ERROR__]]
+	vwait ::messagebody
+	catch {after cancel $afterID}
+
+	puts Binary
+	puts [string2hex $inBinData]
+	puts [string2hex  $::messagebody]
+	if {$::messagebody == "__ERROR__"} {
+		error "In testcase 'Stomp_subscribe' getting a message failed"
+	} elseif {$::messagebody != $inBinData} {
+		error "Message not equal to sent message. got='$::messagebody' want='binary.jpg'"
+	}
+
+	# unsubscribe
+	if {[::s unsubscribe $queue_subscribe] != 1} {
+		error "In testcase 'Stomp_subscribe' Unsubscribe failed"
+	}
+
+	# disconnect
+	if {[::s disconnect] != 1} {
+		error "In testcase 'Stomp_subscribe' Disconnect faild"
+	}
+}
+
+exit
+
 # to skip tests - add them here:
 #tcltest::configure -skip [list Stomp_handleLine Stomp_connect Stomp_disconnect Stomp_Send Stomp_Double_Header Stomp_subscribe Stomp_unsubscribe Stomp_durably_subscribe Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_successful_connection Stomp_heartBeat_should_call_heartBeatScript_somewhen_after_connection_lost]
 
@@ -390,17 +461,19 @@ test Stomp_subscribe {} -body {
 
 	# send
 	unset ::messagebody
-	::s send $queue_subscribe "Stomp_2sübscribe"
+	::s send $queue_subscribe "Stomp_2sï¿½bscribe"
 	after 5000 [list set ::messagebody ERROR]
 	vwait ::messagebody
 
-	if {[string match "Stomp_2sübscribe*" $::messagebody] != 1} {
+	if {[string match "Stomp_2sï¿½bscribe*" $::messagebody] != 1} {
 		error "In testcase 'Stomp_subscribe' getting a message failed (connect after subscribe)"
 	}
 
 	return 1
 
 } -result "1"
+
+
 
 test Stomp_durably_subscribe {} -body {
 	puts "## Stomp_durably_subscribe"

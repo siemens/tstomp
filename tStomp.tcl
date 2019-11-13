@@ -364,8 +364,11 @@ class tStomp {
 	private method handleLine {line} {
 		# debug $readStatus FINEST
 		set endOfMessage 0
-		if {[regsub -all -- {\x00} $line "" line]} {
-			set endOfMessage 1
+
+		if {![info exists params(content-length)]} {
+			if {[regsub -all -- {\x00} $line "" line]} {
+				set endOfMessage 1
+			}
 		}
 
 		switch -exact $readStatus {
@@ -404,9 +407,16 @@ class tStomp {
 					MESSAGE - ERROR {
 						append params(messagebody) $line
 
-						if {!$endOfMessage} {
-							# we don't know if it's the last line but we append newline anyway
-							append params(messagebody) "\n"
+						if {[info exists params(content-length)]} {
+							if {[string length $params(messagebody)]>=$params(content-length)} {
+								set endOfMessage 1
+								set params(messagebody) [string range $params(messagebody) 0 [expr $params(content-length)-1]]
+							}
+						} else {
+							if {!$endOfMessage} {
+								# we don't know if it's the last line but we append newline anyway
+								append params(messagebody) "\n"
+							}
 						}
 					}
 					RECEIPT {
@@ -474,6 +484,8 @@ class tStomp {
 	# invoked when the server response frame is MESSAGE
 	#		converts messagebody from utf-8 and calls execute with the encoded message
 	private method on_receive {} {
+		parray params
+
 		if {[info exists params(messagebody)]} {
 			set params(messagebody) [encoding convertfrom utf-8 $params(messagebody)]
 		}
@@ -615,7 +627,13 @@ class tStomp {
 		array unset headers
 		
 		puts $connection_to_server ""
-		puts $connection_to_server "[encoding convertto utf-8 $msg]\0"
+		if {[info exists headers(content-length)]} {
+			puts "CONTENT-LENGTH"
+			puts $connection_to_server "$msg\x00"
+		} else {
+			# ToDo: use \x00 
+			puts $connection_to_server "[encoding convertto utf-8 $msg]\0"
+		}
 		flush $connection_to_server
 
 		return 1

@@ -10,12 +10,11 @@ activemq-service:
     - 8161
 
 tclsh-service:
-  image: efrecon/mini-tcl
+  build: .
+  working_dir: /opt/tcl/lib/tstomp/
   environment:
     - TZ=CEST
   entrypoint: /bin/sh
   command: -c "echo 'puts stderr helloworld' | tclsh8.6"
   links:
     - activemq-service
-  volumes:
-    - .:/opt/tcl/lib/tstomp
